@@ -5,6 +5,20 @@ import sys
 import time
 
 
+def _develop_check(win):
+    """Render an edit on the first thumbnail: proves numpy + the develop pipeline work in a build."""
+    try:
+        from . import develop, imaging
+        it = next((i for i in win.items if i.thumb_base), None)
+        if it is None:
+            return None
+        out = imaging.apply_to_jpeg(it.thumb_base, {'Exposure2012': 0.5, 'Clarity2012': 20, 'Vibrance': 30,
+                                                    'SaturationAdjustmentYellow': -40})
+        return bool(out) and out != it.thumb_base and develop.is_active({'Contrast2012': 10})
+    except Exception as e:      # report instead of crashing the check
+        return f'{type(e).__name__}: {e}'
+
+
 def _selftest(app, win, path):
     """`--selftest=<file.json>`: wait for thumbnails, write a report, quit (used to check builds)."""
     from PySide6.QtCore import QTimer
@@ -17,7 +31,7 @@ def _selftest(app, win, path):
             report = {'version': __version__, 'items': len(win.items), 'thumbs': done,
                       'previews_ok': sum(1 for it in win.items if it.tstate == 2),
                       'no_preview': sum(1 for it in win.items if it.tstate == -1), 'card_mode': win.ingest,
-                      'seconds': round(time.time() - t0, 2)}
+                      'seconds': round(time.time() - t0, 2), 'develop_ok': _develop_check(win)}
             with open(path, 'w', encoding='utf-8') as fh:
                 json.dump(report, fh)
             app.quit()
