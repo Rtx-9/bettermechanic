@@ -78,7 +78,8 @@ def default_meta_presets():
 
 class Config:
     def __init__(self, path: Path | None = None):
-        self.path = Path(path) if path else app_dir() / 'config.json'
+        env = os.environ.get('BETTERMECHANIC_CONFIG')
+        self.path = Path(path) if path else Path(env) if env else app_dir() / 'config.json'
         self.tag_presets = [tag_preset('Hockey', ['Gustav', 'John', 'Mark']),
                             tag_preset('Soccer', ['Stan', 'Joe', 'Shawn'])]
         self.active_tag = self.tag_presets[0]['id']

@@ -45,7 +45,17 @@ presets per sport or team.
   a quiet icon toolbar, a source-list sidebar, an inspector of grouped sections, and light/dark appearance
   that follows the system (or set it in Settings). The large preview always stays dark.
 
-## Install & run
+## Download (Windows)
+
+Grab the latest release from the [Releases page](https://github.com/Rtx-9/bettermechanic/releases/latest):
+
+- **`BetterMechanic.exe`**: a single file, no install. It unpacks itself on each start, so it takes a few seconds to open.
+- **`BetterMechanic-<version>-win64.zip`**: a portable folder that starts faster. Unzip it anywhere and run `BetterMechanic.exe`.
+
+The executables are not code-signed, so Windows SmartScreen may say *"Windows protected your PC"*:
+click **More info → Run anyway**.
+
+## Run from source
 
 You need Python 3.10 or newer.
 
@@ -85,6 +95,14 @@ Settings and presets are stored in `%APPDATA%\BetterMechanic` (Windows),
 
 Number keys are read by their physical position, so Shift + number works on any keyboard layout.
 In the contact sheet, keys act on all selected photos; in the large preview, on the photo shown.
+
+## Building the .exe
+
+```bash
+pip install pyinstaller
+python packaging/make_icon.py      # only if you changed the icon
+python packaging/build.py          # writes dist/BetterMechanic.exe and dist/BetterMechanic-<version>-win64.zip
+```
 
 ## Tests
 
