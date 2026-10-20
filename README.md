@@ -26,6 +26,11 @@ presets per sport or team.
   Each preset can add extra keywords and can rewrite the caption from a template whenever players change
   (e.g. `{people} of HIFK in action against Tappara, {longdate}.`). Paste a roster (one name per line) to fill
   a preset, and import/export presets as JSON.
+- **Player picker and rosters.** Each preset has a roster with no size limit: names, jersey numbers and photos
+  from an image link or a file on your computer. Press **F** and the picker opens: type part of a name or a number,
+  move with the arrows or the mouse wheel, and press **Enter** to tag (**Shift+Enter** tags and keeps it open for the next
+  player, **Tab** searches every preset). Typing a new name offers to add it to the roster. Paste a whole roster from a
+  spreadsheet or team page (`9, Gustav Forsling, https://…/9.jpg`); players without a photo get coloured initials.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
   Apply them with one click, or automatically during ingest.
@@ -82,6 +87,7 @@ Settings and presets are stored in `%APPDATA%\BetterMechanic` (Windows),
 | `1` … `0` | Toggle player 1–10 of the active tag preset |
 | `Shift` + `1` … `0` | Toggle player 11–20 |
 | `P` / `Shift+P` | Next / previous tag preset |
+| `F` (or `/`) | Player picker: type a name or number, `Enter` to tag |
 | `Backspace` | Remove all players from the selection |
 | `T` | Tag (pick) |
 | `X` | Reject |

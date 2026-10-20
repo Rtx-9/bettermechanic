@@ -199,6 +199,15 @@ QLineEdit#ptitle { font-size: ${fs_big}pt; font-weight: 700; border: 1.5px solid
   padding: 4px 14px; background: $field; }
 QLabel#pill { background: $accent; color: $accent_text; border-radius: 9px; padding: 2px 9px; font-weight: 600; font-size: ${fs_small}pt; }
 
+/* player picker */
+QFrame#picker { background: $card; border: 1px solid $separator; border-radius: 16px; }
+QLineEdit#pickersearch { font-size: ${fs_big}pt; padding: 8px 10px; border-radius: 10px; background: $field; }
+QListWidget#cards { background: transparent; }
+QTableWidget { background: $field; border: 1px solid $field_border; border-radius: 8px; gridline-color: $separator;
+  selection-background-color: $accent_soft; selection-color: $label; }
+QHeaderView::section { background: $window; color: $secondary; border: none; border-bottom: 1px solid $separator;
+  padding: 5px 6px; font-weight: 600; }
+
 /* misc */
 QFrame#banner { background: $accent_soft; border-bottom: 1px solid $separator; }
 QLabel#big { font-size: ${fs_big}pt; font-weight: 600; }

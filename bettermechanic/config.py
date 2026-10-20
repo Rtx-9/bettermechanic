@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -28,7 +29,8 @@ def tag_preset(name, names=()):
     slots = [''] * SLOTS
     for i, n in enumerate(list(names)[:SLOTS]):
         slots[i] = n
-    return {'id': new_id(), 'name': name, 'slots': slots, 'caption_tpl': '', 'auto_caption': False, 'keywords': ''}
+    return {'id': new_id(), 'name': name, 'slots': slots, 'caption_tpl': '', 'auto_caption': False, 'keywords': '',
+            'roster': []}   # roster: [{'name', 'number', 'image'}] - any length; slots are the quick keys
 
 
 DEFAULT_SETTINGS = {
@@ -110,6 +112,9 @@ class Config:
         q = tag_preset(p.get('name') or 'Preset')
         q.update({k: v for k, v in p.items() if k in q})
         q['slots'] = (list(q['slots']) + [''] * SLOTS)[:SLOTS]
+        q['roster'] = [{'name': str(r.get('name', '')).strip(), 'number': str(r.get('number', '') or '').strip(),
+                        'image': str(r.get('image', '') or '').strip()}
+                       for r in (q.get('roster') or []) if isinstance(r, dict) and str(r.get('name', '')).strip()]
         return q
 
     def save(self):
@@ -163,3 +168,57 @@ class Config:
 def key_label(i):
     d = str((i % 10 + 1) % 10)
     return ('⇧' + d) if i >= 10 else d
+
+
+def players(preset):
+    """Everyone in a preset: roster entries plus quick-key names that are not in the roster yet."""
+    keys = {}
+    for i, n in enumerate(preset.get('slots') or []):
+        if n.strip() and n.strip() not in keys:
+            keys[n.strip()] = i
+    out, seen = [], set()
+    for r in preset.get('roster') or []:
+        name = r.get('name', '').strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append({'name': name, 'number': r.get('number', ''), 'image': r.get('image', '')})
+    for name in keys:
+        if name not in seen:
+            seen.add(name)
+            out.append({'name': name, 'number': '', 'image': ''})
+    for e in out:
+        e['key'] = keys.get(e['name'])
+        e['team'] = preset.get('name', '')
+    return out
+
+
+IMAGE_RE = re.compile(r'(https?://\S+|file://\S+|[A-Za-z]:[\\/][^\t;,]+?\.(?:jpe?g|png|webp|gif|bmp)'
+                      r'|/[^\t;,]+?\.(?:jpe?g|png|webp|gif|bmp))', re.I)
+
+
+def parse_roster(text):
+    """Parse pasted roster lines, e.g. "9, Gustav Forsling, https://…/9.jpg" or "#9 Gustav"."""
+    out = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        image = ''
+        m = IMAGE_RE.search(line)
+        if m:
+            image = m.group(1).strip()
+            line = (line[:m.start()] + line[m.end():]).strip()
+        parts = [x.strip() for x in re.split(r'[\t;,|]', line) if x.strip()]
+        number, names = '', []
+        for x in parts:
+            if not number and re.fullmatch(r'#?\d{1,3}', x):
+                number = x.lstrip('#')
+            else:
+                names.append(x)
+        name = ' '.join(names)
+        m2 = re.fullmatch(r'#?(\d{1,3})[.)]?\s+(.+)', name)
+        if not number and m2:
+            number, name = m2.group(1), m2.group(2)
+        if name:
+            out.append({'name': name, 'number': number, 'image': image})
+    return out

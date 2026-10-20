@@ -197,5 +197,47 @@ class TestCopy(Base):
         self.assertEqual((res['copied'], res['skipped']), (0, len(items) - 1))
 
 
+
+class TestRoster(unittest.TestCase):
+    def test_parse_roster(self):
+        from bettermechanic.config import parse_roster
+        rows = parse_roster('9, Gustav Forsling, https://ex.com/p/9.jpg\n'
+                            '12\tMark Lee\tC:\\pics\\mark.png\n'
+                            '#91 John Smith\n'
+                            '7. Joe Bloggs | https://x.y/7.png\n'
+                            'Stan\n\n')
+        self.assertEqual(rows, [
+            {'name': 'Gustav Forsling', 'number': '9', 'image': 'https://ex.com/p/9.jpg'},
+            {'name': 'Mark Lee', 'number': '12', 'image': 'C:\\pics\\mark.png'},
+            {'name': 'John Smith', 'number': '91', 'image': ''},
+            {'name': 'Joe Bloggs', 'number': '7', 'image': 'https://x.y/7.png'},
+            {'name': 'Stan', 'number': '', 'image': ''}])
+
+    def test_players_merge_roster_and_keys(self):
+        from bettermechanic.config import players, tag_preset
+        p = tag_preset('Hockey', ['Gustav', 'Zed'])
+        p['roster'] = [{'name': 'Ann', 'number': '1', 'image': ''}, {'name': 'Gustav', 'number': '9', 'image': 'x'}]
+        out = players(p)
+        self.assertEqual([(e['name'], e['number'], e['key']) for e in out],
+                         [('Ann', '1', None), ('Gustav', '9', 0), ('Zed', '', 1)])
+
+    def test_avatar_from_file_and_link(self):
+        from bettermechanic import avatars
+        tmp = tempfile.mkdtemp()
+        try:
+            src = os.path.join(tmp, 'head.jpg')
+            Image.new('RGB', (300, 500), (200, 30, 30)).save(src)
+            for i, s in enumerate((src, 'file:///' + src.replace('\\', '/'))):
+                dest = os.path.join(tmp, f'a{i}.jpg')
+                avatars.make_avatar_file(s, dest)
+                with Image.open(dest) as im:
+                    self.assertEqual(im.size, (avatars.SIZE, avatars.SIZE))
+            with self.assertRaises(Exception):
+                avatars.make_avatar_file(os.path.join(tmp, 'missing.jpg'), os.path.join(tmp, 'x.jpg'))
+            self.assertEqual(avatars.initials('Gustav Forsling'), 'GF')
+            self.assertEqual(avatars.initials('Stan'), 'S')
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 if __name__ == '__main__':
     unittest.main()

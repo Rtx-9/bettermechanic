@@ -558,6 +558,17 @@ class KeysPanel(QWidget):
         hint = QLabel('Press P to switch presets')
         hint.setObjectName('hint')
         lay.addWidget(hint)
+        self.find_btn = QPushButton('Find Player…')
+        self.find_btn.setObjectName('row')
+        self.find_btn.setToolTip('Search the whole roster by name or number and tag with Enter (F)')
+        self.find_btn.clicked.connect(win.open_picker)
+        self.roster_btn = QPushButton('Edit Roster…')
+        self.roster_btn.setObjectName('row')
+        self.roster_btn.setToolTip('All players of this preset, with numbers and photos')
+        self.roster_btn.clicked.connect(lambda: win.open_roster())
+        lay.addSpacing(4)
+        lay.addWidget(self.find_btn)
+        lay.addWidget(self.roster_btn)
         self.rows = []
         for i in range(20):
             if i in (0, 10):
@@ -592,6 +603,10 @@ class KeysPanel(QWidget):
             self.combo.addItem(p['name'] or 'Untitled')
         self.combo.setCurrentIndex(next(i for i, p in enumerate(cfg.tag_presets) if p['id'] == cfg.tag['id']))
         self.combo.blockSignals(False)
+        self.find_btn.setIcon(self.win.icon('search'))
+        self.roster_btn.setIcon(self.win.icon('tag'))
+        n = len([r for r in cfg.tag.get('roster') or []])
+        self.find_btn.setText('Find Player…' + ('' if not n else f'   ({n} in roster)'))
         while self.meta_box.count():
             w = self.meta_box.takeAt(0).widget()
             if w:

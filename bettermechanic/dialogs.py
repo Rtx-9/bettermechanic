@@ -83,7 +83,12 @@ class PresetColumn(QFrame):
         auto.toggled.connect(lambda v: (p.__setitem__('auto_caption', v), board.changed()))
         lay.addWidget(auto)
         btns = QHBoxLayout()
-        for text, fn in (('Paste list', lambda: board.paste(p)), ('Duplicate', lambda: board.duplicate(p)),
+        n = len(p.get('roster') or [])
+        roster = QPushButton(f'Roster ({n} players)…' if n else 'Roster: add players with photos…')
+        roster.setToolTip('Unlimited players with numbers and photos, for the player picker (F)')
+        roster.clicked.connect(lambda: board.win.open_roster(p) and board.render())
+        lay.addWidget(roster)
+        for text, fn in (('Paste Keys', lambda: board.paste(p)), ('Duplicate', lambda: board.duplicate(p)),
                          ('Delete', lambda: board.delete(p))):
             b = QPushButton(text)
             b.setObjectName('mini')
@@ -103,6 +108,7 @@ class PresetBoard(QDialog):
         self.resize(min(1280, win.width() - 60), min(860, win.height() - 40))
         lay = QVBoxLayout(self)
         intro = QLabel('Each column is a preset. Keys 1–0 tag the first ten names, Shift + 1–0 the next ten. '
+                       'Put everyone else in the roster and find them with the player picker (F). '
                        'Switch presets with P / Shift+P or the selector in the left panel.')
         intro.setWordWrap(True)
         intro.setObjectName('dim')
@@ -696,6 +702,8 @@ HELP = """
 <tr><td><b>1 … 0</b></td><td>Toggle the player on keys 1–10 of the active tag preset</td></tr>
 <tr><td><b>Shift + 1 … 0</b></td><td>Toggle players 11–20</td></tr>
 <tr><td><b>P / Shift+P</b></td><td>Next / previous tag preset (e.g. Hockey ↔ Soccer)</td></tr>
+<tr><td><b>F</b> (or <b>/</b>)</td><td>Player picker: type a name or number, arrows or scroll to choose, <b>Enter</b> tags
+(<b>Shift+Enter</b> tags and keeps it open, <b>Tab</b> searches all presets)</td></tr>
 <tr><td><b>Backspace</b></td><td>Remove all players from the selected photos</td></tr>
 <tr><td><b>T</b></td><td>Tag / untag (pick)</td></tr>
 <tr><td><b>X</b></td><td>Reject / unreject</td></tr>

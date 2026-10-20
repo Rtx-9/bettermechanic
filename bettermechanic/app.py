@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from . import core, icons, theme
+from .avatars import AvatarStore
 from .config import key_label
+from .picker import PlayerPicker, RosterEditor
 from .dialogs import CopyDialog, HelpDialog, MetaPresets, PresetBoard, SettingsDialog
 from .views import Filmstrip, GridView, InfoPanel, KeysPanel, Loupe, PhotoModel, PixCache, ThumbDelegate
 from .workers import Bus, CopyJob, Loader, Saver
@@ -64,6 +66,7 @@ class MainWindow(QMainWindow):
         self.loader = Loader(self.bus, cfg.settings)
         self.saver = Saver(self.bus, cfg.settings)
         self.pix = PixCache()
+        self.avatars = AvatarStore(os.path.join(os.path.dirname(str(cfg.path)), 'avatars'))
         self.cell = QSize(190, 174)
         self.strip_cell = QSize(96, 76)
         self.items, self.root, self.root_name = [], None, ''
@@ -725,8 +728,12 @@ class MainWindow(QMainWindow):
         p = self.cfg.tag
         name = p['slots'][i].strip()
         if not name:
-            self.toast(f'Key {key_label(i)} is empty in “{p["name"]}” — click ✎ next to it to add a name')
+            self.toast(f'Key {key_label(i)} is empty in “{p["name"]}”. Hover it and click Edit, or press F to pick a player')
             return
+        self.toggle_name(name)
+
+    def toggle_name(self, name):
+        """Add `name` to the target photos, or remove it if every target already has it."""
         state = {}
 
         def fn(ts):
@@ -745,6 +752,25 @@ class MainWindow(QMainWindow):
             n = len(ts)
             self.toast(f'{"Removed" if state["rm"] else "Tagged"} {name} {"from" if state["rm"] else "on"} '
                        f'{n} photo{"s" if n > 1 else ""}')
+        return ts
+
+    def open_picker(self):
+        if not self.items:
+            self.toast('Open a folder or card first')
+            return
+        if not self.targets():
+            self.toast('Select a photo first')
+            return
+        PlayerPicker(self).exec()
+        self.panels_later()
+
+    def open_roster(self, preset=None):
+        p = preset or self.cfg.tag
+        if RosterEditor(self, p).exec():
+            self.cfg.save()
+            self.preset_changed(quiet=True)
+            return True
+        return False
 
     def add_person(self, name):
         def fn(ts):
@@ -951,6 +977,8 @@ class MainWindow(QMainWindow):
                 self.loupe.set_zoom(True)
         elif k == K('Key_P'):
             self.cycle_preset(-1 if shift else 1)
+        elif k in (K('Key_F'), K('Key_Slash')):
+            self.open_picker()
         elif k in (K('Key_Backspace'), K('Key_Delete')):
             self.clear_people()
         elif k in (K('Key_F1'), K('Key_Question')):
