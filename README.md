@@ -1,3 +1,5 @@
+THIS IS FOR PERSONAL USE BUT ITS PUBLIC BECAUSE IDC
+
 # BetterMechanic
 
 A fast photo browser for culling, tagging and ingesting — in the spirit of Photo Mechanic, with
