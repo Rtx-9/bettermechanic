@@ -15,7 +15,9 @@ def _selftest(app, win, path):
         if (win.items and done == len(win.items)) or time.time() - t0 > 30:
             from . import __version__
             report = {'version': __version__, 'items': len(win.items), 'thumbs': done,
-                      'previews_ok': sum(1 for it in win.items if it.tstate == 2), 'seconds': round(time.time() - t0, 2)}
+                      'previews_ok': sum(1 for it in win.items if it.tstate == 2),
+                      'no_preview': sum(1 for it in win.items if it.tstate == -1), 'card_mode': win.ingest,
+                      'seconds': round(time.time() - t0, 2)}
             with open(path, 'w', encoding='utf-8') as fh:
                 json.dump(report, fh)
             app.quit()
