@@ -394,7 +394,7 @@ RASTER_MAGIC = (b'\x89PNG', b'GIF8', b'BM')
 def analyze(path) -> Analysis:
     a = Analysis()
     with open(path, 'rb') as f:
-        size = os.fstat(f.fileno()).st_size
+        size = f.seek(0, os.SEEK_END)    # os.fstat fails on some card readers
         src = Src(f, size)
         head = src.read(0, 96)
         if head[:2] == b'\xff\xd8':

@@ -36,6 +36,9 @@ presets per sport or team.
   Apply them with one click, or automatically during ingest.
 - **Culling.** Tag (T), reject (X), stars (Alt+1–5), color labels (Alt+6–9), filters (tagged, rejected,
   rated, has players …), and search by file name, player, keyword or caption.
+- **Cull straight from the card.** Open a memory card (any folder with a DCIM folder) and it opens read-only with all its
+  subfolders. Tag, reject, rate and tag players; BetterMechanic remembers your choices (nothing is written to the card,
+  and they're still there if you close the app), then **Ingest Tagged** or **Ingest All Except Rejected**.
 - **Ingest with culling.** Open a memory card read-only and cull and tag it *before* anything is copied.
   Then copy only what you keep (all except rejected, tagged only, rated, …) to a destination plus an optional
   backup drive, with subfolder and rename templates (`{yyyy}-{mm}-{dd}`, `{date}_{seq:4}`). Tags, players and

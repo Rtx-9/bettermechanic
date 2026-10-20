@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import os
 import re
 import tempfile
@@ -50,6 +51,7 @@ class Item:
     thumb: bytes | None = None
     edited: bool = False
     save_error: str = ''
+    overlay: dict | None = None    # culling saved by the app for read-only cards
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def __post_init__(self):
@@ -192,6 +194,8 @@ def ensure_meta(item, settings):
                     m.update(M.parse_xmp(fh.read()))
             except OSError:
                 pass
+        if item.overlay:
+            m.update({k: (list(v) if isinstance(v, list) else v) for k, v in item.overlay.items()})
         m['people'] = M.uniq(m.get('people') or [])
         m['keywords'] = [k for k in M.uniq(m.get('keywords') or []) if k not in m['people']]
         item.meta = m
@@ -250,6 +254,64 @@ def _reanalyze(item):
         return a
     except OSError:
         return None
+
+
+# ------------------------------------------------------------ memory cards
+
+def is_card(path):
+    """A camera card (or a copy of one): has, or is inside, a DCIM folder."""
+    p = os.path.abspath(path)
+    parts = [x.lower() for x in p.replace('\\', '/').split('/') if x]
+    return 'dcim' in parts or os.path.isdir(os.path.join(p, 'DCIM'))
+
+
+def card_scan_root(path):
+    d = os.path.join(os.path.abspath(path), 'DCIM')
+    return d if os.path.isdir(d) else path
+
+
+def session_key(item):
+    f = item.primary
+    return f'{f.name}|{f.size}|{int(f.mtime)}'
+
+
+class CullStore:
+    """Culling done on a read-only card, kept by the app until the photos are ingested."""
+    KEEP = 100_000
+
+    def __init__(self, path):
+        self.path, self.data, self.changed = str(path), {}, False
+        try:
+            with open(self.path, encoding='utf-8') as fh:
+                self.data = json.load(fh)
+        except (OSError, ValueError):
+            self.data = {}
+
+    def get(self, item):
+        return self.data.get(session_key(item))
+
+    def put(self, item):
+        blank = M.blank()
+        diff = {k: v for k, v in item.meta.items() if v != blank.get(k)}
+        key = session_key(item)
+        if diff:
+            self.data.pop(key, None)         # re-insert: newest last
+            self.data[key] = diff
+        else:
+            self.data.pop(key, None)
+        self.changed = True
+
+    def save(self):
+        if not self.changed:
+            return
+        if len(self.data) > self.KEEP:
+            self.data = dict(list(self.data.items())[-self.KEEP:])
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump(self.data, fh, ensure_ascii=False)
+        os.replace(tmp, self.path)
+        self.changed = False
 
 
 # ---------------------------------------------------------- ingest history

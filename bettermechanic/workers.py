@@ -29,7 +29,7 @@ class Loader:
 
     Urgent jobs (the preview you are looking at) go first; otherwise threads
     ask `feeder()` for the next thumbnail, which prefers what is on screen.
-    File reading and Qt decoding release the GIL, so this scales across cores.
+    File reading and Pillow decoding release the GIL, so this scales across cores.
     """
 
     def __init__(self, bus: Bus, settings, n=None):
@@ -42,6 +42,7 @@ class Loader:
         self.bg = 0
         self.thumb_size = 256
         self.generation = 0
+        self.stopped = False
         n = n or max(2, min(8, (os.cpu_count() or 4) - 1))
         self.threads = [threading.Thread(target=self._run, daemon=True, name=f'loader-{i}') for i in range(n)]
         for t in self.threads:
@@ -70,6 +71,23 @@ class Loader:
         with self.cv:
             self.cv.notify_all()
 
+    def stop(self):
+        """Finish quietly when the window closes."""
+        with self.cv:
+            self.stopped = True
+            self.order, self.visible = [], []
+            self.urgent.clear()
+            self.prefetch.clear()
+            self.cv.notify_all()
+
+    def _emit(self, signal, *args):
+        if self.stopped:
+            return
+        try:
+            signal.emit(*args)
+        except RuntimeError:        # window already gone
+            pass
+
     # ---- worker side
     def _next(self):
         if self.urgent:
@@ -97,8 +115,10 @@ class Loader:
     def _run(self):
         while True:
             with self.cv:
-                job = self._next()
+                job = None if self.stopped else self._next()
                 while job is None:
+                    if self.stopped:
+                        return
                     self.cv.wait()
                     job = self._next()
                 size = self.thumb_size
@@ -117,7 +137,7 @@ class Loader:
             core.ensure_meta(item, self.settings)
             if not item.meta_loaded:
                 return None
-            self.bus.meta_ready.emit(item)
+            self._emit(self.bus.meta_ready, item)
         if item.analysis is None:          # file vanished / unreadable
             from .previews import analyze
             a = analyze(item.pv.path)
@@ -139,8 +159,8 @@ class Loader:
         item.tbusy = False
         if not item.meta_loaded:
             core.ensure_meta(item, self.settings)
-            self.bus.meta_ready.emit(item)
-        self.bus.thumb_ready.emit(item)
+            self._emit(self.bus.meta_ready, item)
+        self._emit(self.bus.thumb_ready, item)
 
     def _preview(self, item, full, box):
         try:
@@ -149,7 +169,7 @@ class Loader:
             img = (im.size[0], im.size[1], im.tobytes()) if im is not None else None
         except OSError:
             img = None
-        self.bus.preview_ready.emit(item, full, img)
+        self._emit(self.bus.preview_ready, item, full, img)
 
 
 class Saver:
@@ -174,7 +194,10 @@ class Saver:
             except Exception as e:      # report and keep going
                 err = f'{type(e).__name__}: {e}'
             self.pending -= 1
-            self.bus.saved.emit(item, err)
+            try:
+                self.bus.saved.emit(item, err)
+            except RuntimeError:        # window already gone
+                pass
 
 
 # --------------------------------------------------------------------- copy

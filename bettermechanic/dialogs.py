@@ -366,10 +366,12 @@ WHICH = [('not_rejected', 'All except rejected'), ('all', 'All photos'), ('tagge
 
 
 class CopyDialog(QDialog):
-    def __init__(self, win, ingest=False):
+    def __init__(self, win, ingest=False, which=None):
         super().__init__(win)
         self.win, self.cfg, self.ingest = win, win.cfg, ingest
         o = self.o = dict(win.cfg.copy)
+        if which:
+            o['which'] = which
         self.job = None
         self.setWindowTitle('Ingest' if ingest else 'Copy & Export')
         self.resize(720, 640)

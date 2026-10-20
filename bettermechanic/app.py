@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         self.saver = Saver(self.bus, cfg.settings)
         self.pix = PixCache()
         self.avatars = AvatarStore(os.path.join(os.path.dirname(str(cfg.path)), 'avatars'))
+        self.culls = core.CullStore(os.path.join(os.path.dirname(str(cfg.path)), 'card_culling.json'))
         self.cell = QSize(190, 174)
         self.strip_cell = QSize(96, 76)
         self.items, self.root, self.root_name = [], None, ''
@@ -223,10 +224,13 @@ class MainWindow(QMainWindow):
         self.banner_text = QLabel()
         self.banner_text.setWordWrap(True)
         bl.addWidget(self.banner_text, 1)
-        ib = QPushButton('Start Ingest…')
-        ib.setObjectName('primary')
-        ib.clicked.connect(self.open_copy)
-        bl.addWidget(ib)
+        self.ingest_all_btn = QPushButton('Ingest All Except Rejected…')
+        self.ingest_all_btn.clicked.connect(lambda: self.open_copy('not_rejected'))
+        self.ingest_tagged_btn = QPushButton('Ingest Tagged…')
+        self.ingest_tagged_btn.setObjectName('primary')
+        self.ingest_tagged_btn.clicked.connect(lambda: self.open_copy('tagged'))
+        bl.addWidget(self.ingest_all_btn)
+        bl.addWidget(self.ingest_tagged_btn)
         self.banner.hide()
         cl.addWidget(self.banner)
         self.stack = QStackedWidget()
@@ -356,6 +360,7 @@ class MainWindow(QMainWindow):
 
     def _timers(self):
         self.save_timer = QTimer(self, singleShot=True, interval=700, timeout=self.flush_saves)
+        self.cull_timer = QTimer(self, singleShot=True, interval=800, timeout=self.culls.save)
         self.vis_timer = QTimer(self, singleShot=True, interval=40, timeout=self.update_visible)
         self.panel_timer = QTimer(self, singleShot=True, interval=40, timeout=self.refresh_panels)
         self.status_timer = QTimer(self, interval=500, timeout=self.update_status)
@@ -454,10 +459,7 @@ class MainWindow(QMainWindow):
             self.open_folder(d, ingest=ingest)
 
     def confirm_leave(self):
-        if self.ingest and any(it.edited for it in self.items):
-            r = QMessageBox.question(self, 'Leave ingest?', 'You tagged or culled photos on this card but have not '
-                                     'ingested them yet. Those choices will be lost. Continue?')
-            return r == QMessageBox.Yes
+        self.culls.save()            # card culling is kept by the app, nothing to lose
         return True
 
     def open_folder(self, path, ingest=False, recursive=None):
@@ -467,16 +469,25 @@ class MainWindow(QMainWindow):
         if not self.confirm_leave():
             return
         self.flush_saves()
-        rec = recursive if recursive is not None else self.cfg.settings['ingest_recursive' if ingest else 'recursive']
+        card = ingest or core.is_card(path)
+        rec = recursive if recursive is not None else (card or self.cfg.settings['recursive'])
+        auto_sub = False
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             def prog(n):
                 self.statusBar().showMessage(f'   Scanning {os.path.basename(path)}… {n} photos')
                 QApplication.processEvents()
-            files, sidecars = core.scan_folder(path, rec, prog)
+            files, sidecars = core.scan_folder(core.card_scan_root(path) if card else path, rec, prog)
+            if not files and not rec:        # nothing here: look in the subfolders instead
+                files, sidecars = core.scan_folder(path, True, prog)
+                auto_sub = bool(files)
             items = core.build_items(files, sidecars, self.cfg.settings['group_pairs'])
+            if card:
+                for it in items:
+                    it.overlay = self.culls.get(it)
         finally:
             QApplication.restoreOverrideCursor()
+        ingest = card
         self.exit_loupe()
         self.items, self.root, self.root_name = items, path, os.path.basename(os.path.normpath(path)) or path
         self.ingest = ingest
@@ -489,15 +500,23 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self.rebuild_recent()
         self.setWindowTitle(f'{self.root_name} — BetterMechanic' + ('  [INGEST]' if ingest else ''))
+        restored = sum(1 for it in items if it.overlay)
         if ingest:
-            self.banner_text.setText(f'<b>INGEST</b> — <b>{self.root_name}</b> is open read-only. Cull and tag here '
-                                     f'(nothing is written to the card), then start the ingest to copy what you keep.')
+            self.banner_text.setText(f'<b>Memory card.</b> Cull and tag as much as you like: your choices are kept by '
+                                     f'BetterMechanic (nothing is written to the card), even if you close the app. '
+                                     f'Then ingest only what you keep.')
         elif self.readonly:
-            self.banner_text.setText('This folder is read-only: changes stay in memory. Use Copy & export to save copies.')
+            self.banner_text.setText('This folder is read-only: changes stay in memory. Use Export to save copies.')
         self.banner.setVisible(self.readonly)
-        self.banner.findChild(QPushButton).setVisible(ingest)
+        self.ingest_all_btn.setVisible(ingest)
+        self.ingest_tagged_btn.setVisible(ingest)
         self.apply_view(reset=True)
-        self.toast(f'{len(items)} photos' + (' — nothing to show here' if not items else ''))
+        msg = f'{len(items)} photos'
+        if auto_sub:
+            msg += ' (found in subfolders)'
+        if restored:
+            msg += f' · culling restored for {restored}'
+        self.toast(msg if items else 'No photos in this folder')
         self.grid.setFocus()
 
     def rebuild_recent(self):
@@ -697,7 +716,11 @@ class MainWindow(QMainWindow):
             it.edited = True
             if not self.readonly:
                 self.dirty[it.id] = it
+            elif self.ingest:
+                self.culls.put(it)
             self.model.changed(it)
+        if self.ingest:
+            self.cull_timer.start()
         if not self.readonly and self.cfg.settings.get('auto_save', True):
             self.save_timer.start()
         self.loupe.update()
@@ -873,12 +896,18 @@ class MainWindow(QMainWindow):
         self.keys.refresh_presets()
 
     # ============================================================= copy
-    def open_copy(self):
+    def open_copy(self, which=None):
         if not self.items:
             self.toast('Open a folder or card first')
             return
         self.flush_saves()
-        CopyDialog(self, ingest=self.ingest).exec()
+        self.culls.save()
+        if which == 'tagged':
+            self.loaded(self.items)
+            if not any(it.meta['tagged'] for it in self.items):
+                self.toast('Nothing is tagged yet: press T on the photos you want to keep')
+                return
+        CopyDialog(self, ingest=self.ingest, which=which).exec()
 
     def start_copy(self, o):
         job = CopyJob(self.bus, list(self.model.items), [it.id for it in self.targets()], o, self.cfg.settings,
@@ -904,7 +933,7 @@ class MainWindow(QMainWindow):
             if sel > 1:
                 sub += f', {sel} selected'
             if self.ingest:
-                sub += '  ·  Ingest'
+                sub += '  ·  Memory card'
         else:
             sub = 'No folder open'
         self.subtitle.setText(sub)
@@ -912,7 +941,12 @@ class MainWindow(QMainWindow):
         self.st_thumbs.setText(f'Previews {done}/{n}' if n and done < n else '')
         self.st_preset.setText(f'Tag preset: {self.cfg.tag["name"]}')
         if self.ingest:
-            s = 'Ingest mode — changes go into the copies'
+            tagged = sum(1 for it in self.items if it.meta_loaded and it.meta['tagged'])
+            rejected = sum(1 for it in self.items if it.meta_loaded and it.meta['rating'] == -1)
+            self.ingest_tagged_btn.setText(f'Ingest {tagged} Tagged…')
+            self.ingest_all_btn.setText(f'Ingest All Except {rejected} Rejected…' if rejected
+                                        else 'Ingest All…')
+            s = 'Memory card · culling saved in BetterMechanic'
         elif self.readonly and self.items:
             s = 'Read-only'
         elif self.saver.pending:
@@ -1010,6 +1044,7 @@ class MainWindow(QMainWindow):
             e.ignore()
             return
         self.flush_saves()
+        self.culls.save()
         if self.saver.pending:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             import time
@@ -1018,6 +1053,7 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 time.sleep(0.05)
             QApplication.restoreOverrideCursor()
+        self.loader.stop()
         self.cfg.window['geometry'] = bytes(self.saveGeometry().data()).hex()
         self.cfg.save()
         e.accept()

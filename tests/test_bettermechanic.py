@@ -239,5 +239,36 @@ class TestRoster(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+
+class TestCards(Base):
+    def test_is_card(self):
+        self.assertTrue(core.is_card(self.tmp))                       # has DCIM
+        self.assertTrue(core.is_card(self.card))                      # inside DCIM
+        self.assertFalse(core.is_card(os.path.dirname(os.path.abspath(__file__))))
+        self.assertEqual(core.card_scan_root(self.tmp), os.path.join(os.path.abspath(self.tmp), 'DCIM'))
+
+    def test_culling_survives_reopen(self):
+        store_path = os.path.join(self.tmp, 'culls.json')
+        files, sc = core.scan_folder(self.card)
+        items = {i.name: i for i in core.build_items(files, sc)}
+        store = core.CullStore(store_path)
+        it = items['IMG_0002.JPG']
+        core.ensure_meta(it, SETTINGS)
+        it.meta.update(tagged=True, rating=3, people=['Gustav'])
+        store.put(it)
+        store.save()
+        # nothing was written next to the photos
+        self.assertFalse(any(n.lower().endswith('.xmp') for n in os.listdir(self.card)))
+        files, sc = core.scan_folder(self.card)
+        again = {i.name: i for i in core.build_items(files, sc)}['IMG_0002.JPG']
+        again.overlay = core.CullStore(store_path).get(again)
+        core.ensure_meta(again, SETTINGS)
+        self.assertEqual((again.meta['tagged'], again.meta['rating'], again.meta['people']), (True, 3, ['Gustav']))
+        # clearing everything removes the entry
+        again.meta.update(tagged=False, rating=0, people=[])
+        store2 = core.CullStore(store_path)
+        store2.put(again)
+        self.assertIsNone(store2.get(again))
+
 if __name__ == '__main__':
     unittest.main()
