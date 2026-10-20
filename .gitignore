@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+demo_card/
+sample_card/
