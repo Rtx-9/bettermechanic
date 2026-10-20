@@ -183,8 +183,10 @@ class ThumbDelegate(QStyledItemDelegate):
             _check(p, tr, qc('orange'))
         elif hover:
             _check(p, tr, None, QColor(255, 255, 255, 200))
-        # format badge
+        # format badge (+ "Edited" when it has develop settings)
         badge = 'RAW+JPEG' if it.is_pair else it.primary.ext.upper()
+        if it.looks_edited:
+            badge = 'Edited · ' + badge
         bw = fm.horizontalAdvance(badge) + 10
         br = QRectF(frame.right() - bw - 8, frame.top() + 9, bw, 16)
         p.setPen(Qt.NoPen)
@@ -319,6 +321,11 @@ class Loupe(QWidget):
             self.item, self.pix, self.level = item, None, 0
         self.update()
 
+    def force(self, item, pix, level):
+        if item is self.item and pix is not None and not pix.isNull():
+            self.pix, self.level = pix, level
+            self.update()
+
     def offer(self, item, pix, level):
         if item is self.item and pix is not None and not pix.isNull() and level > self.level:
             self.pix, self.level = pix, level
@@ -391,6 +398,8 @@ class Loupe(QWidget):
         p.drawText(r.adjusted(14, 23, 0, -5), Qt.AlignLeft | Qt.AlignVCenter, sub)
 
         flags = []
+        if getattr(self.win, 'before_after', False) and it.looks_edited:
+            flags.append(('Before', QColor('#8e8e93')))
         if m['tagged']:
             flags.append(('Tagged', qc('orange')))
         if m['rating'] == -1:

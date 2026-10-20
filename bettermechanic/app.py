@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import sys
+import hashlib
+import json
 from collections import Counter, OrderedDict
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, QSize, Qt, QTimer
@@ -12,13 +14,14 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication
                                QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import core, icons, theme
+from . import core, develop, icons, theme
 from .avatars import AvatarStore
 from .config import key_label
 from .picker import PlayerPicker, RosterEditor
+from .editpanel import EditPanel
 from .dialogs import CopyDialog, HelpDialog, MetaPresets, PresetBoard, SettingsDialog
 from .views import Filmstrip, GridView, InfoPanel, KeysPanel, Loupe, PhotoModel, PixCache, ThumbDelegate
-from .workers import Bus, CopyJob, Loader, Saver
+from .workers import Bus, CopyJob, DevRenderer, Loader, Saver
 
 K = lambda name: getattr(Qt.Key, name).value          # noqa: E731
 MAC_DIGITS = {29: 0, 18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9}
@@ -34,6 +37,8 @@ FILTERS = [
     ('people', 'Has players', lambda it: bool(it.meta['people'])),
     ('nopeople', 'No players yet', lambda it: not it.meta['people']),
     ('labeled', 'Has color label', lambda it: bool(it.meta['label'])),
+    ('edited', 'Edited', lambda it: it.looks_edited),
+    ('unedited', 'Not edited', lambda it: not it.looks_edited),
 ]
 SORTS = [('name', 'File name'), ('time', 'Capture time'), ('time_desc', 'Newest first')]
 
@@ -68,6 +73,10 @@ class MainWindow(QMainWindow):
         self.pix = PixCache()
         self.avatars = AvatarStore(os.path.join(os.path.dirname(str(cfg.path)), 'avatars'))
         self.culls = core.CullStore(os.path.join(os.path.dirname(str(cfg.path)), 'card_culling.json'))
+        self.dev_presets = develop.PresetLibrary(os.path.join(os.path.dirname(str(cfg.path)), 'develop_presets.json'))
+        self.preset_ctx, self.dev_clip, self.before_after = None, None, False
+        self.base_px, self.edit_cache = OrderedDict(), OrderedDict()
+        self.renderer = DevRenderer(self.bus)
         self.cell = QSize(190, 174)
         self.strip_cell = QSize(96, 76)
         self.items, self.root, self.root_name = [], None, ''
@@ -85,6 +94,7 @@ class MainWindow(QMainWindow):
         b.meta_ready.connect(self.on_meta)
         b.preview_ready.connect(self.on_preview)
         b.saved.connect(self.on_saved)
+        b.dev_rendered.connect(self.on_dev_rendered)
         QApplication.instance().installEventFilter(self)
         self.keys.refresh_presets()
         self.refresh_panels()
@@ -262,8 +272,38 @@ class MainWindow(QMainWindow):
         split.addWidget(center)
 
         self.info = InfoPanel(self)
-        self.info.setMinimumWidth(300)
-        split.addWidget(self.info)
+        self.edit_panel = EditPanel(self)
+        self.inspector = QWidget()
+        il = QVBoxLayout(self.inspector)
+        il.setContentsMargins(0, 8, 0, 0)
+        il.setSpacing(4)
+        tabs = QFrame()
+        tabs.setObjectName('segmented')
+        tl2 = QHBoxLayout(tabs)
+        tl2.setContentsMargins(2, 2, 2, 2)
+        tl2.setSpacing(2)
+        self.tab_info, self.tab_edit = QToolButton(), QToolButton()
+        for b, text, tip in ((self.tab_info, 'Info', 'Metadata, players and captions'),
+                             (self.tab_edit, 'Edit', 'Lightroom presets and adjustments (D)')):
+            b.setText(text)
+            b.setCheckable(True)
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            tl2.addWidget(b)
+        self.tab_info.clicked.connect(lambda: self.show_tab('info'))
+        self.tab_edit.clicked.connect(lambda: self.show_tab('edit'))
+        tabrow = QHBoxLayout()
+        tabrow.setContentsMargins(12, 0, 12, 0)
+        tabrow.addWidget(tabs)
+        il.addLayout(tabrow)
+        self.insp_stack = QStackedWidget()
+        self.insp_stack.addWidget(self.info)
+        self.insp_stack.addWidget(self.edit_panel)
+        il.addWidget(self.insp_stack, 1)
+        self.inspector.setMinimumWidth(310)
+        self.tab_info.setChecked(True)
+        split.addWidget(self.inspector)
         split.setStretchFactor(1, 1)
         split.setSizes([260, 1000, 340])
         self.setCentralWidget(split)
@@ -284,7 +324,9 @@ class MainWindow(QMainWindow):
         for seq, fn in (('Ctrl+O', lambda: self.choose_folder(False)), ('Ctrl+I', lambda: self.choose_folder(True)),
                         ('Ctrl+E', self.open_copy), ('Ctrl+S', self.flush_saves), ('Ctrl+D', self.select_none),
                         ('Ctrl+A', self.select_all), ('Ctrl+F', lambda: (self.search.setFocus(), self.search.selectAll())),
-                        ('Ctrl+M', self.open_meta_presets), ('Ctrl+,', lambda: SettingsDialog(self).exec())):
+                        ('Ctrl+M', self.open_meta_presets), ('Ctrl+,', lambda: SettingsDialog(self).exec()),
+                        ('Ctrl+Shift+C', self.copy_develop), ('Ctrl+Shift+V', self.paste_develop),
+                        ('Ctrl+Shift+R', self.reset_develop)):
             QShortcut(QKeySequence(seq), self, activated=fn)
         self.rebuild_recent()
         hints = QApplication.styleHints()
@@ -316,8 +358,16 @@ class MainWindow(QMainWindow):
         self.tb_sidebar.setChecked(self.left.isVisible())
 
     def toggle_inspector(self):
-        self.info.setVisible(not self.info.isVisible())
-        self.tb_inspector.setChecked(self.info.isVisible())
+        self.inspector.setVisible(not self.inspector.isVisible())
+        self.tb_inspector.setChecked(self.inspector.isVisible())
+
+    def show_tab(self, which):
+        self.tab_info.setChecked(which == 'info')
+        self.tab_edit.setChecked(which == 'edit')
+        self.insp_stack.setCurrentWidget(self.edit_panel if which == 'edit' else self.info)
+        if not self.inspector.isVisible():
+            self.toggle_inspector()
+        self.panels_later()
 
     def _empty_page(self):
         w = QWidget()
@@ -641,14 +691,7 @@ class MainWindow(QMainWindow):
         if not it:
             return
         full, fit = self.pv_cache.get((it.id, True)), self.pv_cache.get((it.id, False))
-        if full:
-            self.loupe.offer(it, full, 3)
-        elif fit:
-            self.loupe.offer(it, fit, 2)
-        else:
-            pm = self.pix.get(it)
-            if pm:
-                self.loupe.offer(it, pm, 1)
+        self.refresh_loupe()
         if not fit and not full:
             self.request_preview(it, False)
         if self.loupe.zoom and not full:
@@ -663,6 +706,7 @@ class MainWindow(QMainWindow):
         it = self.loupe.item
         if it and self.loupe.zoom:
             self.request_preview(it, True)
+        self.refresh_loupe()
 
     def on_preview(self, it, full, img):
         self.pv_inflight.discard((it.id, full))
@@ -675,21 +719,199 @@ class MainWindow(QMainWindow):
             it.w, it.h = w, h
         pm = QPixmap.fromImage(QImage(data, w, h, 3 * w, QImage.Format_RGB888))
         self.pv_cache[(it.id, full)] = pm
+        self.base_px[(it.id, full)] = img
+        self.base_px.move_to_end((it.id, full))
+        cur_id = self.loupe.item.id if self.loupe.item else None
+        for k in [k for k in self.base_px if k[1] and k[0] != cur_id][:-1] + \
+                 [k for k in self.base_px if not k[1] and k[0] != cur_id][:-8]:
+            self.base_px.pop(k, None)
         cur = self.loupe.item.id if self.loupe.item else None
         fits = [k for k in self.pv_cache if not k[1] and k[0] != cur]
         fulls = [k for k in self.pv_cache if k[1] and k[0] != cur]
         for k in fits[:-12] + fulls[:-2]:
             self.pv_cache.pop(k, None)
         if self.loupe.item is it:
-            self.loupe.offer(it, pm, 3 if full else 2)
+            self.refresh_loupe()
+
+    # ============================================================ develop
+    @staticmethod
+    def dev_sig(it):
+        dev = develop.clean(it.develop)
+        return hashlib.md5(json.dumps(sorted(dev.items()), default=str).encode()).hexdigest()[:12]
+
+    def refresh_loupe(self, live=False):
+        """Show the best available picture for the current photo (edited unless Before/After)."""
+        it = self.loupe.item
+        if it is None:
+            return
+        zoom = self.loupe.zoom
+        if not (it.looks_edited and not self.before_after):
+            for key, lvl in (((it.id, True), 3),) * zoom + (((it.id, False), 2),):
+                if key in self.pv_cache:
+                    self.loupe.force(it, self.pv_cache[key], lvl)
+                    return
+            pm = self.pix.get(it)
+            if pm:
+                self.loupe.force(it, pm, 1)
+            return
+        sig, dev = self.dev_sig(it), develop.clean(it.develop)
+        shown = False
+        for tag, lvl in (('full', 3),) * zoom + (('fit', 2), ('proxy', 1.5)):
+            pm = self.edit_cache.get((it.id, tag, sig))
+            if pm is not None:
+                self.loupe.force(it, pm, lvl)
+                shown = True
+                break
+        if not shown and (self.loupe.pix is None or self.loupe.level == 0):
+            pm = self.pv_cache.get((it.id, False)) or self.pix.get(it)
+            if pm:
+                self.loupe.force(it, pm, 1)
+        base = self.base_px.get((it.id, False))
+        if base:
+            if live:
+                self.renderer.request('proxy', (it, 'proxy', sig, dev, base, 1100))
+            elif (it.id, 'fit', sig) not in self.edit_cache:
+                self.renderer.request('fit', (it, 'fit', sig, dev, base, 0))
+        if zoom and not live:
+            fb = self.base_px.get((it.id, True))
+            if fb and (it.id, 'full', sig) not in self.edit_cache:
+                self.renderer.request('full', (it, 'full', sig, dev, fb, 0))
+
+    def on_dev_rendered(self, it, tag, sig, w, h, data):
+        self.edit_cache[(it.id, tag, sig)] = QPixmap.fromImage(QImage(data, w, h, 3 * w, QImage.Format_RGB888))
+        while len(self.edit_cache) > 10:
+            self.edit_cache.popitem(last=False)
+        if self.loupe.item is it and sig == self.dev_sig(it):
+            self.refresh_loupe()
+
+    def _dev_targets(self):
+        ts = self.targets()
+        self.loaded(ts)
+        return ts
+
+    def _dev_commit(self, ts):
+        """Settings changed for good: save, refresh thumbnails and panels."""
+        for it in ts:
+            it.looks_edited = develop.is_active(it.develop)
+            self.loader.rethumb(it)
+        self.edit(lambda _ts: None, ts)
+        self.refresh_loupe()
+
+    def set_develop(self, key, value, final):
+        ts = self._dev_targets()
+        if not ts:
+            return
+        if isinstance(value, float) and key != 'Exposure2012' and value.is_integer():
+            value = int(value)          # Lightroom writes whole numbers for these
+        for it in ts:
+            it.develop[key] = value
+            it.dev_edits.add(key)
+            it.looks_edited = develop.is_active(it.develop)
+        if final:
+            self._dev_commit(ts)
+        else:
+            self.refresh_loupe(live=True)
+
+    def apply_develop_preset(self, pid, amount=1.0):
+        p = self.dev_presets.get(pid)
+        ts = self._dev_targets()
+        if not p or not ts:
+            if not ts:
+                self.toast('Select a photo first')
+            return
+        self.preset_ctx = {'pid': pid, 'before': {it.id: (dict(it.develop), set(it.dev_edits)) for it in ts}}
+        self._apply_preset_amount(ts, p, amount)
+        self._dev_commit(ts)
+        self.toast(f'Applied “{p["name"]}” to {len(ts)} photo{"s" if len(ts) != 1 else ""}')
+
+    def _apply_preset_amount(self, ts, p, amount):
+        vals = develop.scale_settings(p['settings'], amount)
+        for it in ts:
+            before = self.preset_ctx['before'].get(it.id)
+            if before is None:
+                continue
+            it.develop, it.dev_edits = dict(before[0]), set(before[1])
+            it.develop.update(vals)
+            it.dev_edits |= set(vals)
+            it.looks_edited = develop.is_active(it.develop)
+
+    def set_preset_amount(self, amount, final):
+        ctx = self.preset_ctx
+        p = ctx and self.dev_presets.get(ctx['pid'])
+        if not p:
+            return
+        ts = [it for it in self._dev_targets() if it.id in ctx['before']]
+        self._apply_preset_amount(ts, p, amount)
+        if final:
+            self._dev_commit(ts)
+        else:
+            self.refresh_loupe(live=True)
+
+    SKIP_COPY = {'RawFileName', 'HasSettings', 'ProcessVersion', 'Version', 'AlreadyApplied', 'HasCrop', 'CropTop',
+                 'CropLeft', 'CropBottom', 'CropRight', 'CropAngle', 'CropConstrainToWarp', 'Name', 'Group', 'UUID'}
+
+    def settings_to_copy(self, it):
+        return {k: v for k, v in develop.clean(it.develop).items() if k not in self.SKIP_COPY}
+
+    def copy_develop(self):
+        it = (self._dev_targets() or [None])[0]
+        if it is None:
+            return
+        self.dev_clip = self.settings_to_copy(it)
+        self.toast(f'Copied the edit settings of {it.name}' if self.dev_clip else 'This photo has no edits to copy')
+
+    def paste_develop(self):
+        if not self.dev_clip:
+            self.toast('Copy a photo\'s edit settings first (Ctrl+Shift+C)')
+            return
+        ts = self._dev_targets()
+        for it in ts:
+            it.develop.update(self.dev_clip)
+            it.dev_edits |= set(self.dev_clip)
+        self._dev_commit(ts)
+        self.toast(f'Pasted edits onto {len(ts)} photo{"s" if len(ts) != 1 else ""}')
+
+    def reset_develop(self):
+        ts = self._dev_targets()
+        for it in ts:
+            for k in list(it.develop):
+                if k not in self.SKIP_COPY or k in ('HasSettings', 'AlreadyApplied'):
+                    it.develop[k] = None
+                    it.dev_edits.add(k)
+        self.preset_ctx = None
+        self._dev_commit(ts)
+        self.toast(f'Removed edits from {len(ts)} photo{"s" if len(ts) != 1 else ""}')
+
+    def set_before_after(self, on=None):
+        self.before_after = (not self.before_after) if on is None else bool(on)
+        self.edit_panel.before.setChecked(self.before_after)
+        self.refresh_loupe()
+        self.loupe.update()
+
+    def import_develop_presets(self, paths):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            found, skipped = develop.read_presets(paths)
+            added = self.dev_presets.add_many(found)
+        except Exception as e:      # unreadable zip etc.
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, 'Import Presets', f'Could not import: {e}')
+            return
+        QApplication.restoreOverrideCursor()
+        self.edit_panel.fill_tree()
+        groups = len({p['group'] for p in found})
+        msg = f'Imported {added} new preset{"s" if added != 1 else ""} in {groups} group{"s" if groups != 1 else ""}'
+        if len(found) > added:
+            msg += f', updated {len(found) - added}'
+        if skipped:
+            msg += f'. Skipped {skipped} file{"s" if skipped != 1 else ""} (profiles or not develop presets)'
+        self.toast(msg, 6000)
 
     # ===================================================== worker events
     def on_thumb(self, it):
         self.model.changed(it)
         if self.mode == 'loupe' and self.loupe.item is it and self.loupe.level == 0:
-            pm = self.pix.get(it)
-            if pm:
-                self.loupe.offer(it, pm, 1)
+            self.refresh_loupe()
 
     def on_meta(self, it):
         self.model.changed(it)
@@ -922,7 +1144,10 @@ class MainWindow(QMainWindow):
             self.loaded(ts)
         counts = Counter(p for it in self.items if it.meta_loaded for p in it.meta['people'])
         self.keys.refresh(ts, counts)
-        self.info.refresh(ts[:300])
+        if self.insp_stack.currentWidget() is self.edit_panel:
+            self.edit_panel.refresh(ts)
+        else:
+            self.info.refresh(ts[:300])
 
     def update_status(self):
         n, shown = len(self.items), len(self.model.items)
@@ -1013,6 +1238,12 @@ class MainWindow(QMainWindow):
             self.cycle_preset(-1 if shift else 1)
         elif k in (K('Key_F'), K('Key_Slash')):
             self.open_picker()
+        elif k == K('Key_D'):
+            self.show_tab('edit')
+            if self.mode != 'loupe':
+                self.enter_loupe()
+        elif k == K('Key_Y'):
+            self.set_before_after()
         elif k in (K('Key_Backspace'), K('Key_Delete')):
             self.clear_people()
         elif k in (K('Key_F1'), K('Key_Question')):
@@ -1054,6 +1285,7 @@ class MainWindow(QMainWindow):
                 time.sleep(0.05)
             QApplication.restoreOverrideCursor()
         self.loader.stop()
+        self.renderer.stop()
         self.cfg.window['geometry'] = bytes(self.saveGeometry().data()).hex()
         self.cfg.save()
         e.accept()

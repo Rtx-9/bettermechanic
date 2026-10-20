@@ -11,7 +11,7 @@ from io import BytesIO
 
 from PIL import Image
 
-from . import previews
+from . import develop, previews
 
 Image.MAX_IMAGE_PIXELS = None
 T = Image.Transpose
@@ -138,10 +138,20 @@ def make_preview(path, a, max_w=0, max_h=0):
     return None
 
 
-def render_jpeg(path, a, long_edge=0, quality=90) -> bytes:
+def apply_to_jpeg(data: bytes, settings, quality=85) -> bytes:
+    """Re-render a (thumbnail) JPEG with develop settings."""
+    if not develop.is_active(settings):
+        return data
+    with Image.open(BytesIO(data)) as im:
+        return to_jpeg(develop.render_pil(im.convert('RGB'), settings), quality)
+
+
+def render_jpeg(path, a, long_edge=0, quality=90, settings=None) -> bytes:
     im = make_preview(path, a, long_edge, long_edge)
     if im is None:
         raise OSError('no decodable image')
     if long_edge and max(im.size) > long_edge:
         im.thumbnail((long_edge, long_edge), Image.Resampling.LANCZOS)
+    if settings:
+        im = develop.render_pil(im, settings)
     return to_jpeg(im, quality)

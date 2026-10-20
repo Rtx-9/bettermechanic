@@ -31,6 +31,13 @@ presets per sport or team.
   move with the arrows or the mouse wheel, and press **Enter** to tag (**Shift+Enter** tags and keeps it open for the next
   player, **Tab** searches every preset). Typing a new name offers to add it to the roster. Paste a whole roster from a
   spreadsheet or team page (`9, Gustav Forsling, https://…/9.jpg`); players without a photo get coloured initials.
+- **Edit with Lightroom presets.** Import presets in bulk: `.xmp` and older `.lrtemplate` files, whole folders, or the `.zip`
+  packs they're sold in. They're grouped by the preset's group or folder, searchable, and apply with an **Amount** slider.
+  Edit in the app too (press **D**): white balance, exposure, contrast, highlights, shadows, whites, blacks, texture,
+  clarity, dehaze, vibrance, saturation, a colour mixer (HSL) and black & white, vignette, grain and sharpening, with
+  before/after (**Y**) and copy / paste / reset (**Ctrl+Shift+C / V / R**). Edits are saved as Lightroom / Camera Raw
+  settings in the XMP, so Lightroom and Photoshop apply them to the RAW; BetterMechanic shows a close approximation
+  based on the camera's embedded JPEG, and bakes it into JPEG exports.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
   Apply them with one click, or automatically during ingest.
@@ -91,6 +98,9 @@ Settings and presets are stored in `%APPDATA%\BetterMechanic` (Windows),
 | `Shift` + `1` … `0` | Toggle player 11–20 |
 | `P` / `Shift+P` | Next / previous tag preset |
 | `F` (or `/`) | Player picker: type a name or number, `Enter` to tag |
+| `D` | Edit: presets and adjustments |
+| `Y` | Before / after |
+| `Ctrl+Shift+C` / `V` / `R` | Copy / paste / reset edit settings |
 | `Backspace` | Remove all players from the selection |
 | `T` | Tag (pick) |
 | `X` | Reject |

@@ -52,6 +52,10 @@ class Item:
     edited: bool = False
     save_error: str = ''
     overlay: dict | None = None    # culling saved by the app for read-only cards
+    develop: dict = field(default_factory=dict)   # Camera Raw settings as read + edited
+    dev_edits: set = field(default_factory=set)    # keys changed in this app (written back; None = remove)
+    thumb_base: bytes | None = None                # thumbnail before edits
+    looks_edited: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def __post_init__(self):
@@ -185,17 +189,27 @@ def ensure_meta(item, settings):
             except OSError:
                 a = None
         m = M.blank()
+        dev = {}
         if a is not None:
             m.update(M.read_jpeg_meta(a.xmp, a.app13))
+            if a.xmp:
+                dev.update(M.parse_develop(a.xmp))
         use_sidecar = item.sidecar and (item.pv.kind != 'jpeg' or item.is_pair or settings.get('jpeg_mode') == 'sidecar')
         if use_sidecar:
             try:
                 with open(item.sidecar, 'r', encoding='utf-8', errors='replace') as fh:
-                    m.update(M.parse_xmp(fh.read()))
+                    text = fh.read()
+                m.update(M.parse_xmp(text))
+                dev.update(M.parse_develop(text))
             except OSError:
                 pass
         if item.overlay:
-            m.update({k: (list(v) if isinstance(v, list) else v) for k, v in item.overlay.items()})
+            m.update({k: (list(v) if isinstance(v, list) else v) for k, v in item.overlay.items() if k != 'develop'})
+            dev.update(item.overlay.get('develop') or {})
+            item.dev_edits = set(item.overlay.get('develop') or {})
+        item.develop = dev
+        from .develop import is_active
+        item.looks_edited = is_active(dev)
         m['people'] = M.uniq(m.get('people') or [])
         m['keywords'] = [k for k in M.uniq(m.get('keywords') or []) if k not in m['people']]
         item.meta = m
@@ -218,7 +232,7 @@ def _atomic_write(path, data: bytes):
         raise
 
 
-def write_item_meta(item, meta, settings):
+def write_item_meta(item, meta, settings, develop=None):
     """Write `meta` (a snapshot) to the item's files. Called off the UI thread."""
     p2k, iim = settings.get('people_to_keywords', True), settings.get('write_iim', True)
     embed = settings.get('jpeg_mode', 'embed') == 'embed'
@@ -227,7 +241,7 @@ def write_item_meta(item, meta, settings):
         if f.kind == 'jpeg' and embed:
             with open(f.path, 'rb') as fh:
                 data = fh.read()
-            _atomic_write(f.path, M.rewrite_jpeg(data, meta, p2k, iim))
+            _atomic_write(f.path, M.rewrite_jpeg(data, meta, p2k, iim, develop))
             st = os.stat(f.path)
             f.size, f.mtime = st.st_size, st.st_mtime
             if f is item.pv:
@@ -243,7 +257,7 @@ def write_item_meta(item, meta, settings):
                     existing = fh.read()
             except OSError:
                 pass
-        _atomic_write(path, M.build_xmp(meta, existing, p2k).encode('utf-8'))
+        _atomic_write(path, M.build_xmp(meta, existing, p2k, develop).encode('utf-8'))
         item.sidecar = path
 
 
@@ -293,6 +307,8 @@ class CullStore:
     def put(self, item):
         blank = M.blank()
         diff = {k: v for k, v in item.meta.items() if v != blank.get(k)}
+        if item.dev_edits:
+            diff['develop'] = {k: item.develop.get(k) for k in item.dev_edits}
         key = session_key(item)
         if diff:
             self.data.pop(key, None)         # re-insert: newest last
@@ -465,3 +481,8 @@ def fmt_bytes(n):
         if n < 1024 or unit == 'GB':
             return f'{n:.0f} {unit}' if unit == 'B' else f'{n:.1f} {unit}'
         n /= 1024
+
+
+def develop_edits(item):
+    """The develop settings changed in this app, as written to XMP (None = remove)."""
+    return {k: item.develop.get(k) for k in item.dev_edits}

@@ -10,7 +10,7 @@ import traceback
 
 from PySide6.QtCore import QObject, Signal
 
-from . import core, imaging
+from . import core, develop, imaging
 from . import metadata as M
 
 
@@ -20,6 +20,7 @@ class Bus(QObject):
     meta_ready = Signal(object)                  # item
     preview_ready = Signal(object, bool, object)  # item, full, (w, h, rgb bytes) | None
     saved = Signal(object, str)                  # item, error ('' = ok)
+    dev_rendered = Signal(object, str, str, int, int, object)   # item, tag, signature, w, h, rgb bytes
     copy_progress = Signal(dict)
     copy_done = Signal(dict)
 
@@ -61,6 +62,12 @@ class Loader:
         with self.cv:
             self.visible, self.thumb_size = list(items), thumb_size
             self.cv.notify_all()
+
+    def rethumb(self, item):
+        """Re-render an existing thumbnail after its develop settings changed."""
+        with self.cv:
+            self.prefetch.appendleft(('rethumb', item, False, None))
+            self.cv.notify()
 
     def preview(self, item, full, box, urgent=True):
         with self.cv:
@@ -126,6 +133,8 @@ class Loader:
             try:
                 if kind == 'thumb':
                     self._thumb(item, flag, size)
+                elif kind == 'rethumb':
+                    self._rethumb(item)
                 else:
                     self._preview(item, flag, box)
             except Exception:
@@ -152,7 +161,14 @@ class Loader:
         except OSError:
             data, q = None, 0
         if data:
-            item.thumb, item.tq = data, q
+            item.thumb_base, item.tq = data, q
+            dev = dict(item.develop)
+            if develop.is_active(dev):
+                try:
+                    data = imaging.apply_to_jpeg(data, dev)
+                except (OSError, ValueError):
+                    pass
+            item.thumb = data
             item.tstate = 2 if (hq or q >= size * 0.9) else 1
         else:
             item.tstate = 2 if hq and item.thumb else -1
@@ -162,6 +178,14 @@ class Loader:
             self._emit(self.bus.meta_ready, item)
         self._emit(self.bus.thumb_ready, item)
 
+    def _rethumb(self, item):
+        if item.thumb_base:
+            try:
+                item.thumb = imaging.apply_to_jpeg(item.thumb_base, dict(item.develop))
+            except (OSError, ValueError):
+                return
+            self._emit(self.bus.thumb_ready, item)
+
     def _preview(self, item, full, box):
         try:
             a = self._analysis(item)
@@ -170,6 +194,50 @@ class Loader:
         except OSError:
             img = None
         self._emit(self.bus.preview_ready, item, full, img)
+
+
+class DevRenderer:
+    """Renders develop settings for the large preview on its own thread; newest request per tag wins."""
+    ORDER = ('proxy', 'fit', 'full')
+
+    def __init__(self, bus):
+        self.bus, self.cv, self.jobs, self.stopped = bus, threading.Condition(), {}, False
+        threading.Thread(target=self._run, daemon=True, name='develop').start()
+
+    def request(self, tag, job):
+        with self.cv:
+            self.jobs[tag] = job
+            self.cv.notify()
+
+    def stop(self):
+        with self.cv:
+            self.stopped = True
+            self.jobs.clear()
+            self.cv.notify_all()
+
+    def _run(self):
+        import numpy as np
+        from PIL import Image
+        while True:
+            with self.cv:
+                while not self.jobs and not self.stopped:
+                    self.cv.wait()
+                if self.stopped:
+                    return
+                tag = next(t for t in self.ORDER if t in self.jobs)
+                item, _, sig, settings, base, proxy_edge = self.jobs.pop(tag)
+            try:
+                w, h, data = base
+                arr = np.frombuffer(data, np.uint8).reshape(h, w, 3)
+                if proxy_edge and max(w, h) > proxy_edge:
+                    s = proxy_edge / max(w, h)
+                    arr = np.asarray(Image.fromarray(arr).resize((round(w * s), round(h * s)), Image.BILINEAR))
+                out = develop.render(arr, settings)
+                self.bus.dev_rendered.emit(item, tag, sig, out.shape[1], out.shape[0], out.tobytes())
+            except RuntimeError:            # window closed
+                return
+            except Exception:
+                traceback.print_exc()
 
 
 class Saver:
@@ -183,14 +251,14 @@ class Saver:
 
     def put(self, item):
         self.pending += 1
-        self.q.put((item, M.copy_meta(item.meta)))
+        self.q.put((item, M.copy_meta(item.meta), core.develop_edits(item)))
 
     def _run(self):
         while True:
-            item, meta = self.q.get()
+            item, meta, dev = self.q.get()
             err = ''
             try:
-                core.write_item_meta(item, meta, dict(self.settings))
+                core.write_item_meta(item, meta, dict(self.settings), dev)
             except Exception as e:      # report and keep going
                 err = f'{type(e).__name__}: {e}'
             self.pending -= 1
@@ -340,7 +408,8 @@ class CopyJob(threading.Thread):
             if a is None:
                 from .previews import analyze
                 a = analyze(it.pv.path)
-            data = imaging.render_jpeg(it.pv.path, a, int(o.get('long_edge') or 0), int(o.get('quality') or 90))
+            data = imaging.render_jpeg(it.pv.path, a, int(o.get('long_edge') or 0), int(o.get('quality') or 90),
+                                       dict(it.develop) if o.get('apply_edits', True) else None)
             if write_meta:
                 data = M.rewrite_jpeg(data, meta, p2k, iim)
             self._write(os.path.join(d, names[0]), data)
@@ -349,11 +418,12 @@ class CopyJob(threading.Thread):
         if not names:
             return False
         embed = st.get('jpeg_mode', 'embed') == 'embed'
+        dev = core.develop_edits(it) or None
         for f, n in zip(it.files, names):
             target = os.path.join(d, n)
             if f.kind == 'jpeg' and write_meta and embed:
                 with open(f.path, 'rb') as fh:
-                    self._write(target, M.rewrite_jpeg(fh.read(), meta, p2k, iim))
+                    self._write(target, M.rewrite_jpeg(fh.read(), meta, p2k, iim, dev))
             else:
                 self._stream(f.path, target)
         need_sidecar = any(f.kind != 'jpeg' or not embed for f in it.files)
@@ -365,6 +435,6 @@ class CopyJob(threading.Thread):
                         existing = fh.read()
                 except OSError:
                     pass
-            text = M.build_xmp(meta, existing, p2k) if write_meta else existing
+            text = M.build_xmp(meta, existing, p2k, dev) if write_meta else existing
             self._write(os.path.join(d, os.path.splitext(names[0])[0] + '.xmp'), text.encode('utf-8'))
         return True
