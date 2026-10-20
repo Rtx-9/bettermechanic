@@ -7,12 +7,12 @@ from collections import Counter, OrderedDict
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, QSize, Qt, QTimer
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFileDialog, QFrame,
+from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
                                QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import core
+from . import core, icons, theme
 from .config import key_label
 from .dialogs import CopyDialog, HelpDialog, MetaPresets, PresetBoard, SettingsDialog
 from .views import Filmstrip, GridView, InfoPanel, KeysPanel, Loupe, PhotoModel, PixCache, ThumbDelegate
@@ -92,66 +92,122 @@ class MainWindow(QMainWindow):
             self.resize(1500, 920)
 
     # ================================================================ UI
+    def icon(self, name):
+        return icons.icon(name, theme.qc('accent') if name == 'text' else theme.qc('label'))
+
+    def _tool(self, tb, name, text, fn, tip, label=True, checkable=False):
+        b = QToolButton()
+        b._icon = name
+        b.setIcon(self.icon(name))
+        b.setIconSize(QSize(18, 18))
+        b.setText(text)
+        b.setToolTip(tip)
+        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if label else Qt.ToolButtonIconOnly)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.setCheckable(checkable)
+        if fn:
+            b.clicked.connect(fn)
+        tb.addWidget(b)
+        self._tools.append(b)
+        return b
+
     def _build(self):
+        self._tools = []
         tb = QToolBar()
         tb.setMovable(False)
         tb.setFloatable(False)
+        tb.setContextMenuPolicy(Qt.PreventContextMenu)
         self.addToolBar(tb)
-        brand = QLabel('  ◉ BetterMechanic  ')
-        brand.setObjectName('brand')
-        tb.addWidget(brand)
-        self._btn(tb, 'Open folder', lambda: self.choose_folder(False), 'Open a folder (Ctrl+O)', primary=True)
-        self.recent_btn = QToolButton()
-        self.recent_btn.setText('Recent ▾')
-        self.recent_btn.setPopupMode(QToolButton.InstantPopup)
+        self.tb_sidebar = self._tool(tb, 'sidebar_left', 'Sidebar', self.toggle_sidebar,
+                                     'Show or hide the tag keys sidebar', label=False, checkable=True)
+        titles = QWidget()
+        tl = QVBoxLayout(titles)
+        tl.setContentsMargins(8, 0, 14, 0)
+        tl.setSpacing(0)
+        self.title = QLabel('BetterMechanic')
+        self.title.setObjectName('title')
+        self.subtitle = QLabel('No folder open')
+        self.subtitle.setObjectName('subtitle')
+        tl.addWidget(self.title)
+        tl.addWidget(self.subtitle)
+        titles.setMinimumWidth(170)
+        tb.addWidget(titles)
+        self.open_btn = self._tool(tb, 'folder', 'Open', lambda: self.choose_folder(False), 'Open a folder (Ctrl+O)')
         self.recent_menu = QMenu(self)
-        self.recent_btn.setMenu(self.recent_menu)
-        tb.addWidget(self.recent_btn)
-        self._btn(tb, 'Ingest from card', lambda: self.choose_folder(True), 'Cull a memory card, then copy (Ctrl+I)')
-        self._btn(tb, 'Copy && export', self.open_copy, 'Copy / export / send (Ctrl+E)')
-        tb.addSeparator()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText('Search name, player, keyword…  (Ctrl+F)')
-        self.search.setClearButtonEnabled(True)
-        self.search.setMaximumWidth(280)
-        self._search_timer = QTimer(self, singleShot=True, interval=250, timeout=self.apply_view)
-        self.search.textChanged.connect(lambda _: self._search_timer.start())
-        tb.addWidget(self.search)
+        self.open_btn.setMenu(self.recent_menu)
+        self.open_btn.setPopupMode(QToolButton.MenuButtonPopup)
+        self._tool(tb, 'card', 'Ingest', lambda: self.choose_folder(True), 'Ingest from a memory card (Ctrl+I)')
+        self._tool(tb, 'export', 'Export', self.open_copy, 'Copy & export (Ctrl+E)')
+        tb.addWidget(self._spacer())
+        seg = QFrame()
+        seg.setObjectName('segmented')
+        sl = QHBoxLayout(seg)
+        sl.setContentsMargins(2, 2, 2, 2)
+        sl.setSpacing(2)
+        self.seg_grid, self.seg_loupe = QToolButton(), QToolButton()
+        group = QButtonGroup(self)
+        for b, name, tip, fn in ((self.seg_grid, 'grid', 'Contact sheet', self.exit_loupe),
+                                 (self.seg_loupe, 'photo', 'Large preview (Enter)', self.enter_loupe)):
+            b._icon = name
+            b.setIcon(self.icon(name))
+            b.setIconSize(QSize(16, 16))
+            b.setCheckable(True)
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.clicked.connect(fn)
+            group.addButton(b)
+            sl.addWidget(b)
+            self._tools.append(b)
+        self.seg_grid.setChecked(True)
+        tb.addWidget(seg)
+        tb.addWidget(self._spacer())
         self.filter = QComboBox()
         for k, t, _ in FILTERS:
             self.filter.addItem(t, k)
+        self.filter.setToolTip('Show')
         self.filter.currentIndexChanged.connect(lambda _: (self.apply_view(), self.grid.setFocus()))
         tb.addWidget(self.filter)
         self.sort = QComboBox()
         for k, t in SORTS:
             self.sort.addItem(t, k)
+        self.sort.setToolTip('Sort by')
         self.sort.currentIndexChanged.connect(lambda _: (self.apply_view(), self.grid.setFocus()))
         tb.addWidget(self.sort)
         self.size = QSlider(Qt.Horizontal)
         self.size.setRange(110, 460)
         self.size.setValue(int(self.cfg.settings['thumb_size']))
-        self.size.setFixedWidth(130)
+        self.size.setFixedWidth(96)
         self.size.setToolTip('Thumbnail size')
         self.size.setFocusPolicy(Qt.NoFocus)
         self.size.valueChanged.connect(self._resize_thumbs)
         tb.addWidget(self.size)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        tb.addWidget(spacer)
-        self._btn(tb, 'Tag presets', self.open_presets, 'Edit player key presets')
-        self._btn(tb, 'Metadata presets', self.open_meta_presets, 'Captions / IPTC templates')
-        self._btn(tb, '⚙', lambda: SettingsDialog(self).exec(), 'Settings')
-        self._btn(tb, '?', lambda: HelpDialog(self).exec(), 'Keyboard shortcuts (F1)')
+        self.search = QLineEdit()
+        self.search.setObjectName('search')
+        self.search.setPlaceholderText('Search')
+        self.search.setToolTip('Search file names, players, keywords and captions (Ctrl+F)')
+        self.search.setClearButtonEnabled(True)
+        self.search.setFixedWidth(200)
+        self.search_icon = self.search.addAction(self.icon('search'), QLineEdit.LeadingPosition)
+        self._search_timer = QTimer(self, singleShot=True, interval=250, timeout=self.apply_view)
+        self.search.textChanged.connect(lambda _: self._search_timer.start())
+        tb.addWidget(self.search)
+        self._tool(tb, 'tag', 'Tag Presets', self.open_presets, 'Tag presets: player keys', label=False)
+        self._tool(tb, 'text', 'Metadata Presets', self.open_meta_presets, 'Metadata presets (Ctrl+M)', label=False)
+        self._tool(tb, 'gear', 'Settings', lambda: SettingsDialog(self).exec(), 'Settings (Ctrl+,)', label=False)
+        self._tool(tb, 'help', 'Help', lambda: HelpDialog(self).exec(), 'Keyboard shortcuts (F1)', label=False)
+        self.tb_inspector = self._tool(tb, 'sidebar_right', 'Inspector', self.toggle_inspector,
+                                       'Show or hide the inspector (I)', label=False, checkable=True)
 
         split = QSplitter(Qt.Horizontal)
         split.setHandleWidth(1)
+        split.setChildrenCollapsible(False)
         self.keys = KeysPanel(self)
-        left = QScrollArea()
-        left.setWidget(self.keys)
-        left.setWidgetResizable(True)
-        left.setFrameShape(QFrame.NoFrame)
-        left.setMinimumWidth(250)
-        split.addWidget(left)
+        self.left = QScrollArea()
+        self.left.setWidget(self.keys)
+        self.left.setWidgetResizable(True)
+        self.left.setFrameShape(QFrame.NoFrame)
+        self.left.setMinimumWidth(240)
+        split.addWidget(self.left)
 
         center = QWidget()
         cl = QVBoxLayout(center)
@@ -160,11 +216,11 @@ class MainWindow(QMainWindow):
         self.banner = QFrame()
         self.banner.setObjectName('banner')
         bl = QHBoxLayout(self.banner)
-        bl.setContentsMargins(12, 6, 8, 6)
+        bl.setContentsMargins(14, 8, 10, 8)
         self.banner_text = QLabel()
         self.banner_text.setWordWrap(True)
         bl.addWidget(self.banner_text, 1)
-        ib = QPushButton('Start ingest…')
+        ib = QPushButton('Start Ingest…')
         ib.setObjectName('primary')
         ib.clicked.connect(self.open_copy)
         bl.addWidget(ib)
@@ -199,42 +255,67 @@ class MainWindow(QMainWindow):
         split.addWidget(center)
 
         self.info = InfoPanel(self)
-        self.info.setMinimumWidth(280)
+        self.info.setMinimumWidth(300)
         split.addWidget(self.info)
         split.setStretchFactor(1, 1)
-        split.setSizes([270, 1000, 340])
+        split.setSizes([260, 1000, 340])
         self.setCentralWidget(split)
+        self.tb_sidebar.setChecked(True)
+        self.tb_inspector.setChecked(True)
 
         sm = self.grid.selectionModel()
         sm.currentChanged.connect(self.on_current)
         sm.selectionChanged.connect(lambda *_: self.panels_later())
 
         sb = self.statusBar()
+        sb.setSizeGripEnabled(False)
         self.st_count, self.st_thumbs, self.st_preset, self.st_save = QLabel(), QLabel(), QLabel(), QLabel()
-        for w in (self.st_count, self.st_thumbs):
-            sb.addWidget(w)
+        sb.addWidget(self.st_thumbs)
         sb.addPermanentWidget(self.st_preset)
         sb.addPermanentWidget(self.st_save)
 
         for seq, fn in (('Ctrl+O', lambda: self.choose_folder(False)), ('Ctrl+I', lambda: self.choose_folder(True)),
                         ('Ctrl+E', self.open_copy), ('Ctrl+S', self.flush_saves), ('Ctrl+D', self.select_none),
                         ('Ctrl+A', self.select_all), ('Ctrl+F', lambda: (self.search.setFocus(), self.search.selectAll())),
-                        ('Ctrl+M', self.open_meta_presets)):
+                        ('Ctrl+M', self.open_meta_presets), ('Ctrl+,', lambda: SettingsDialog(self).exec())):
             QShortcut(QKeySequence(seq), self, activated=fn)
         self.rebuild_recent()
+        hints = QApplication.styleHints()
+        if hasattr(hints, 'colorSchemeChanged'):
+            hints.colorSchemeChanged.connect(self._system_scheme_changed)
 
-    def _btn(self, tb, text, fn, tip='', primary=False):
-        b = QPushButton(text)
-        b.setToolTip(tip)
-        b.setFocusPolicy(Qt.NoFocus)
-        if primary:
-            b.setObjectName('primary')
-        b.clicked.connect(fn)
-        tb.addWidget(b)
-        return b
+    def _system_scheme_changed(self, *_):
+        if self.cfg.settings.get('appearance', 'system') == 'system':
+            self.apply_appearance()
+
+    @staticmethod
+    def _spacer():
+        s = QWidget()
+        s.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        return s
+
+    def apply_appearance(self):
+        theme.apply(QApplication.instance(), self.cfg.settings.get('appearance', 'system'))
+        for b in self._tools:
+            b.setIcon(self.icon(b._icon))
+        self.search_icon.setIcon(self.icon('search'))
+        self.info.restyle()
+        self.keys.refresh_presets()
+        for v in (self.grid.viewport(), self.strip.viewport(), self.loupe):
+            v.update()
+
+    def toggle_sidebar(self):
+        self.left.setVisible(not self.left.isVisible())
+        self.tb_sidebar.setChecked(self.left.isVisible())
+
+    def toggle_inspector(self):
+        self.info.setVisible(not self.info.isVisible())
+        self.tb_inspector.setChecked(self.info.isVisible())
 
     def _empty_page(self):
         w = QWidget()
+        w.setObjectName('empty')
+        w.setAttribute(Qt.WA_StyledBackground, True)
         lay = QVBoxLayout(w)
         lay.addStretch()
         t = QLabel('BetterMechanic')
@@ -242,24 +323,30 @@ class MainWindow(QMainWindow):
         t.setAlignment(Qt.AlignCenter)
         lay.addWidget(t)
         s = QLabel('Open a folder or a memory card, or drop a folder here.\n'
-                   'Number keys tag players from your preset — Shift + number for players 11–20.')
+                   'Number keys tag players from your preset; Shift + number tags players 11–20.')
         s.setAlignment(Qt.AlignCenter)
-        s.setObjectName('dim')
+        s.setObjectName('herosub')
         lay.addWidget(s)
         row = QHBoxLayout()
         row.addStretch()
-        for text, fn, prim in (('Open folder', lambda: self.choose_folder(False), True),
-                               ('Ingest from card', lambda: self.choose_folder(True), False)):
+        for text, fn, prim in (('Ingest from Card…', lambda: self.choose_folder(True), False),
+                               ('Open Folder…', lambda: self.choose_folder(False), True)):
             b = QPushButton(text)
             if prim:
                 b.setObjectName('primary')
             b.clicked.connect(fn)
             row.addWidget(b)
         row.addStretch()
-        lay.addSpacing(12)
+        lay.addSpacing(16)
         lay.addLayout(row)
-        self.empty_recent = QVBoxLayout()
+        rl = QLabel('Recent')
+        rl.setObjectName('section')
+        rl.setAlignment(Qt.AlignCenter)
+        self.empty_recent_label = rl
         lay.addSpacing(18)
+        lay.addWidget(rl)
+        self.empty_recent = QVBoxLayout()
+        self.empty_recent.setSpacing(0)
         lay.addLayout(self.empty_recent)
         lay.addStretch()
         return w
@@ -423,11 +510,12 @@ class MainWindow(QMainWindow):
             self.recent_menu.addAction(label, lambda p=p, ing=ing: self.open_folder(p, ingest=ing))
             if self.empty_recent.count() < 6:
                 b = QPushButton(label)
-                b.setObjectName('link')
+                b.setObjectName('plain')
                 b.clicked.connect(lambda _=False, p=p, ing=ing: self.open_folder(p, ingest=ing))
                 self.empty_recent.addWidget(b, 0, Qt.AlignHCenter)
         if not self.cfg.recent:
-            self.recent_menu.addAction('No recent folders').setEnabled(False)
+            self.recent_menu.addAction('No Recent Folders').setEnabled(False)
+        self.empty_recent_label.setVisible(bool(self.cfg.recent))
 
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls() and any(os.path.isdir(u.toLocalFile()) for u in e.mimeData().urls()):
@@ -477,6 +565,7 @@ class MainWindow(QMainWindow):
         if not self.current_item():
             return
         self.mode = 'loupe'
+        self.seg_loupe.setChecked(True)
         self.stack.setCurrentWidget(self.loupe_page)
         self.show_current()
         self.strip.scrollTo(self.grid.selectionModel().currentIndex(), QAbstractItemView.PositionAtCenter)
@@ -485,6 +574,7 @@ class MainWindow(QMainWindow):
         self.panels_later()
 
     def exit_loupe(self):
+        self.seg_grid.setChecked(True)
         if self.mode != 'loupe':
             return
         self.mode = 'grid'
@@ -782,10 +872,19 @@ class MainWindow(QMainWindow):
     def update_status(self):
         n, shown = len(self.items), len(self.model.items)
         sel = len(self.grid.selectionModel().selectedIndexes()) if n else 0
-        self.st_count.setText(f'  {shown} of {n} photos' + (f'  ·  {sel} selected' if sel else '') if n else '  No folder open')
+        self.title.setText(self.root_name or 'BetterMechanic')
+        if n:
+            sub = f'{shown} of {n} photos' if shown != n else f'{n} photos'
+            if sel > 1:
+                sub += f', {sel} selected'
+            if self.ingest:
+                sub += '  ·  Ingest'
+        else:
+            sub = 'No folder open'
+        self.subtitle.setText(sub)
         done = sum(1 for it in self.items if it.tstate != 0)
         self.st_thumbs.setText(f'Previews {done}/{n}' if n and done < n else '')
-        self.st_preset.setText(f'Keys: {self.cfg.tag["name"]}   ')
+        self.st_preset.setText(f'Tag preset: {self.cfg.tag["name"]}')
         if self.ingest:
             s = 'Ingest mode — changes go into the copies'
         elif self.readonly and self.items:
@@ -857,7 +956,7 @@ class MainWindow(QMainWindow):
         elif k in (K('Key_F1'), K('Key_Question')):
             HelpDialog(self).exec()
         elif k == K('Key_I'):
-            self.info.setVisible(not self.info.isVisible())
+            self.toggle_inspector()
         elif k == K('Key_G'):
             self.exit_loupe() if self.mode == 'loupe' else self.enter_loupe()
         elif k in (K('Key_Left'), K('Key_Right'), K('Key_Up'), K('Key_Down'), K('Key_Home'), K('Key_End'),

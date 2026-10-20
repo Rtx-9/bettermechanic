@@ -1,21 +1,21 @@
-"""Widgets: contact sheet, filmstrip, loupe, tag-key panel, info panel."""
+"""Widgets: contact sheet, filmstrip, loupe, tag-key sidebar, inspector."""
 from __future__ import annotations
 
 from collections import OrderedDict
+from datetime import datetime
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QListView, QListWidget, QPlainTextEdit, QPushButton, QScrollArea, QStyle,
-                               QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget)
+                               QLineEdit, QListView, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton,
+                               QScrollArea, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget)
 
-from . import core
+from . import core, theme
 from .config import key_label
+from .theme import qc
 
 ItemRole = Qt.UserRole + 1
-ACCENT = QColor('#f5a524')
-SEL = QColor('#2f6fd6')
-LABEL_COLORS = {n.lower(): QColor(c) for n, c in core.LABELS}
+HUD = QColor(22, 22, 24, 200)
 
 
 class PhotoModel(QAbstractListModel):
@@ -73,25 +73,44 @@ class PixCache:
         self.d.clear()
 
 
+def _check(p, r: QRectF, fill: QColor, ring: QColor | None = None):
+    """Round check badge (filled) or empty ring."""
+    if ring is not None:
+        p.setPen(QPen(ring, 1.5))
+        p.setBrush(QColor(0, 0, 0, 60))
+        p.drawEllipse(r)
+        return
+    p.setPen(QPen(QColor(255, 255, 255), 1.5))
+    p.setBrush(fill)
+    p.drawEllipse(r)
+    p.setPen(QPen(QColor(255, 255, 255), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    c = r.center()
+    s = r.width() / 18
+    p.drawPolyline([QPointF(c.x() - 4.2 * s, c.y() + 0.2 * s), QPointF(c.x() - 1.2 * s, c.y() + 3.2 * s),
+                    QPointF(c.x() + 4.4 * s, c.y() - 3 * s)])
+
+
 class ThumbDelegate(QStyledItemDelegate):
-    CAP = 22
+    CAP = 24
 
     def __init__(self, win, compact=False):
         super().__init__()
         self.win, self.compact = win, compact
         self.small = QFont()
-        self.small.setPointSizeF(8)
+        self.small.setPointSizeF(max(7.5, QFont().pointSizeF() - 1.5))
 
     def sizeHint(self, opt, idx):
         return self.win.strip_cell if self.compact else self.win.cell
 
     def frame_rect(self, r):
-        r = r.adjusted(3, 3, -3, -3)
+        r = QRect(r).adjusted(4, 4, -4, -4)
+        if not self.compact:
+            r.setBottom(r.bottom() - self.CAP)
         return r
 
     def tag_rect(self, r):
-        r = self.frame_rect(r)
-        return QRect(r.left() + 6, r.bottom() - self.CAP + 5, 13, 13)
+        f = self.frame_rect(r)
+        return QRect(f.left() + 8, f.top() + 8, 20, 20)
 
     def paint(self, p: QPainter, opt, idx):
         it = idx.data(ItemRole)
@@ -99,100 +118,118 @@ class ThumbDelegate(QStyledItemDelegate):
             return
         view = opt.widget
         m = it.meta
-        r = self.frame_rect(opt.rect)
+        frame = self.frame_rect(opt.rect)
         sel = bool(opt.state & QStyle.State_Selected)
+        hover = bool(opt.state & QStyle.State_MouseOver)
         cur = view is not None and view.currentIndex() == idx
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor('#24364f') if sel else QColor('#1c1e22'))
-        p.drawRoundedRect(r, 6, 6)
-        cap = 0 if self.compact else self.CAP
-        img = r.adjusted(5, 5, -5, -5 - cap)
+
+        if sel or hover:
+            p.setPen(Qt.NoPen)
+            p.setBrush(qc('accent_soft') if sel else qc('hover'))
+            p.drawRoundedRect(QRectF(opt.rect).adjusted(2, 2, -2, -2), 9, 9)
+
+        img = frame.adjusted(6, 6, -6, -6)
         pm = self.win.pix.get(it)
         if pm and not pm.isNull():
             s = min(img.width() / pm.width(), img.height() / pm.height())
             w, h = pm.width() * s, pm.height() * s
             tgt = QRectF(img.x() + (img.width() - w) / 2, img.y() + (img.height() - h) / 2, w, h)
+            clip = QPainterPath()
+            clip.addRoundedRect(tgt, 4, 4)
+            p.save()
+            p.setClipPath(clip)
             if m['rating'] == -1:
-                p.setOpacity(0.3)
+                p.setOpacity(0.32)
             p.drawPixmap(tgt, pm, QRectF(pm.rect()))
-            p.setOpacity(1)
+            p.restore()
+            if sel:
+                p.setPen(QPen(qc('accent'), 3 if cur else 2))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(tgt.adjusted(-2.5, -2.5, 2.5, 2.5), 6, 6)
+            elif cur:
+                p.setPen(QPen(qc('secondary'), 1.5))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(tgt.adjusted(-2.5, -2.5, 2.5, 2.5), 6, 6)
         else:
             if it.tstate == 0:
                 self.win.thumbs_wanted()
-            p.setPen(QColor('#666'))
+            p.setPen(Qt.NoPen)
+            p.setBrush(qc('cell'))
+            p.drawRoundedRect(QRectF(img), 6, 6)
+            p.setPen(qc('tertiary'))
             p.setFont(self.small)
-            p.drawText(img, Qt.AlignCenter, 'No preview' if it.tstate == -1 else '')
+            p.drawText(img, Qt.AlignCenter, 'No Preview' if it.tstate == -1 else '')
+
         if m['rating'] == -1:
-            p.setPen(QPen(QColor('#e5484d'), 3))
-            c = img.center()
-            d = min(img.width(), img.height()) // 6
-            p.drawLine(c.x() - d, c.y() - d, c.x() + d, c.y() + d)
-            p.drawLine(c.x() - d, c.y() + d, c.x() + d, c.y() - d)
-        lc = LABEL_COLORS.get((m['label'] or '').lower())
+            c, d = QPointF(img.center()), min(img.width(), img.height()) / 7
+            p.setPen(QPen(qc('red'), 3, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(c.x() - d, c.y() - d), QPointF(c.x() + d, c.y() + d))
+            p.drawLine(QPointF(c.x() - d, c.y() + d), QPointF(c.x() + d, c.y() - d))
+
+        if self.compact:
+            if m['tagged']:
+                _check(p, QRectF(frame.left() + 4, frame.top() + 4, 13, 13), qc('orange'))
+            p.restore()
+            return
+
+        p.setFont(self.small)
+        fm = QFontMetrics(self.small)
+        # tag check (Photos-style round badge), shown on hover when untagged
+        tr = QRectF(self.tag_rect(opt.rect))
+        if m['tagged']:
+            _check(p, tr, qc('orange'))
+        elif hover:
+            _check(p, tr, None, QColor(255, 255, 255, 200))
+        # format badge
+        badge = 'RAW+JPEG' if it.is_pair else it.primary.ext.upper()
+        bw = fm.horizontalAdvance(badge) + 10
+        br = QRectF(frame.right() - bw - 8, frame.top() + 9, bw, 16)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 120))
+        p.drawRoundedRect(br, 8, 8)
+        p.setPen(QColor(255, 255, 255, 230))
+        p.drawText(br, Qt.AlignCenter, badge)
+        # players
+        x, y = img.left() + 4, img.bottom() - 21
+        ppl = m['people']
+        for i, n in enumerate(ppl):
+            txt = n if i < 3 else f'+{len(ppl) - 3}'
+            cw = fm.horizontalAdvance(txt) + 14
+            if x + cw > img.right() - 4:
+                txt, cw = '…', 20
+            cr = QRectF(x, y, cw, 18)
+            p.setPen(Qt.NoPen)
+            p.setBrush(HUD)
+            p.drawRoundedRect(cr, 9, 9)
+            p.setPen(QColor(255, 255, 255))
+            p.drawText(cr, Qt.AlignCenter, txt)
+            x += cw + 4
+            if i >= 3 or txt == '…':
+                break
+        # caption: label dot · file name · stars
+        cap = QRect(opt.rect.left() + 8, frame.bottom() + 2, opt.rect.width() - 16, self.CAP - 4)
+        stars = '★' * m['rating'] if m['rating'] > 0 else ''
+        lc = theme.label_colors().get((m['label'] or '').lower())
+        sw = fm.horizontalAdvance(' ' + stars) if stars else 0
+        dot = 12 if lc else 0
+        name = fm.elidedText(it.name, Qt.ElideMiddle, cap.width() - sw - dot)
+        total = dot + fm.horizontalAdvance(name) + sw
+        x0 = cap.left() + (cap.width() - total) / 2
+        cy = cap.center().y()
         if lc:
             p.setPen(Qt.NoPen)
             p.setBrush(lc)
-            p.drawEllipse(QRect(img.left() + 3, img.top() + 3, 10, 10))
-        if self.compact:
-            if m['tagged']:
-                p.setPen(Qt.NoPen)
-                p.setBrush(ACCENT)
-                p.drawRect(QRect(r.left() + 4, r.bottom() - 6, r.width() - 8, 3))
-        else:
-            p.setFont(self.small)
-            fm = QFontMetrics(self.small)
-            badge = 'RAW+JPG' if it.is_pair else it.primary.ext.upper()
-            bw = fm.horizontalAdvance(badge) + 8
-            br = QRect(img.right() - bw - 2, img.top() + 2, bw, 14)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(0, 0, 0, 150))
-            p.drawRoundedRect(br, 3, 3)
-            p.setPen(QColor('#ddd'))
-            p.drawText(br, Qt.AlignCenter, badge)
-            # player chips
-            x, y = img.left() + 3, img.bottom() - 17
-            for i, n in enumerate(m['people']):
-                txt = n if i < 4 else f'+{len(m["people"]) - 4}'
-                cw = fm.horizontalAdvance(txt) + 10
-                if x + cw > img.right() - 2:
-                    txt, cw = '…', 16
-                cr = QRect(x, y, cw, 15)
-                p.setPen(Qt.NoPen)
-                p.setBrush(QColor(15, 15, 18, 215))
-                p.drawRoundedRect(cr, 7, 7)
-                p.setPen(QColor('#ffd28a'))
-                p.drawText(cr, Qt.AlignCenter, txt)
-                x += cw + 3
-                if i >= 4 or txt == '…':
-                    break
-            # caption line: tag box, name, stars
-            tb = self.tag_rect(opt.rect)
-            p.setPen(QPen(ACCENT if m['tagged'] else QColor('#666'), 1.5))
-            p.setBrush(ACCENT if m['tagged'] else Qt.NoBrush)
-            p.drawRoundedRect(tb, 3, 3)
-            if m['tagged']:
-                p.setPen(QPen(QColor('#111'), 2))
-                p.drawLine(tb.left() + 3, tb.center().y(), tb.center().x() - 1, tb.bottom() - 3)
-                p.drawLine(tb.center().x() - 1, tb.bottom() - 3, tb.right() - 2, tb.top() + 3)
-            stars = '★' * m['rating'] if m['rating'] > 0 else ''
-            sw = fm.horizontalAdvance(stars) + 4 if stars else 0
-            name_r = QRect(tb.right() + 6, tb.top() - 3, r.right() - tb.right() - 12 - sw, 18)
-            p.setPen(QColor('#cfd3da'))
-            p.drawText(name_r, Qt.AlignVCenter | Qt.AlignLeft, fm.elidedText(it.name, Qt.ElideMiddle, name_r.width()))
-            if stars:
-                p.setPen(ACCENT)
-                p.drawText(QRect(r.right() - sw - 4, tb.top() - 3, sw, 18), Qt.AlignVCenter | Qt.AlignRight, stars)
-        if cur:
-            p.setPen(QPen(QColor('#ffffff') if not self.compact else ACCENT, 2))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(r.adjusted(1, 1, -1, -1), 6, 6)
-        elif sel:
-            p.setPen(QPen(SEL, 2))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(r.adjusted(1, 1, -1, -1), 6, 6)
+            p.drawEllipse(QPointF(x0 + 4, cy + 1), 4, 4)
+        p.setPen(qc('label') if sel else qc('secondary'))
+        p.drawText(QRectF(x0 + dot, cap.top(), fm.horizontalAdvance(name) + 2, cap.height()),
+                   Qt.AlignVCenter | Qt.AlignLeft, name)
+        if stars:
+            p.setPen(qc('orange'))
+            p.drawText(QRectF(x0 + dot + fm.horizontalAdvance(name), cap.top(), sw + 2, cap.height()),
+                       Qt.AlignVCenter | Qt.AlignLeft, ' ' + stars)
         p.restore()
 
 
@@ -200,6 +237,7 @@ class GridView(QListView):
     def __init__(self, win):
         super().__init__()
         self.win = win
+        self.setObjectName('grid')
         self.setViewMode(QListView.IconMode)
         self.setResizeMode(QListView.Adjust)
         self.setMovement(QListView.Static)
@@ -208,7 +246,9 @@ class GridView(QListView):
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setSpacing(0)
         self.setWrapping(True)
+        self.setMouseTracking(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setViewportMargins(8, 8, 0, 0)
         self.verticalScrollBar().setSingleStep(40)
         self.verticalScrollBar().valueChanged.connect(lambda _: win.thumbs_wanted())
         self.doubleClicked.connect(lambda _: win.enter_loupe())
@@ -243,13 +283,14 @@ class Filmstrip(QListView):
     def __init__(self, win):
         super().__init__()
         self.win = win
+        self.setObjectName('strip')
         self.setFlow(QListView.LeftToRight)
         self.setWrapping(False)
         self.setUniformItemSizes(True)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.setFixedHeight(win.strip_cell.height() + 18)
+        self.setFixedHeight(win.strip_cell.height() + 16)
         self.setFrameShape(QFrame.NoFrame)
         self.setFocusPolicy(Qt.NoFocus)
 
@@ -269,8 +310,9 @@ class Loupe(QWidget):
         self.drag, self.target = None, None
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.CrossCursor)
-        self.big = QFont()
-        self.big.setPointSize(11)
+        self.hud = QFont()
+        self.hud_bold = QFont()
+        self.hud_bold.setWeight(QFont.DemiBold)
 
     def set_item(self, item):
         if item is not self.item:
@@ -294,18 +336,20 @@ class Loupe(QWidget):
 
     def paintEvent(self, _):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor('#0b0c0e'))
+        p.fillRect(self.rect(), QColor('#0e0e10'))
         it, pm = self.item, self.pix
         if it is None:
             return
         W, H = self.width(), self.height()
+        p.setRenderHint(QPainter.Antialiasing)
         if pm is not None and not pm.isNull():
             dpr = self.devicePixelRatioF()
             sw, sh = pm.width(), pm.height()
             full_w = max(it.w or 0, sw)
             full_h = full_w * sh / sw
             if not self.zoom:
-                s = min(W / sw, H / sh, full_w / sw / dpr)
+                pad = 16
+                s = min((W - 2 * pad) / sw, (H - 2 * pad) / sh, full_w / sw / dpr)
                 dw, dh = sw * s, sh * s
                 x, y = (W - dw) / 2, (H - dh) / 2
             else:
@@ -318,54 +362,74 @@ class Loupe(QWidget):
             p.setRenderHint(QPainter.SmoothPixmapTransform)
             p.drawPixmap(self.target, pm, QRectF(pm.rect()))
         else:
-            p.setPen(QColor('#777'))
-            p.drawText(self.rect(), Qt.AlignCenter, 'Loading…' if it.tstate != -1 else 'No preview available')
+            p.setPen(QColor(255, 255, 255, 120))
+            p.drawText(self.rect(), Qt.AlignCenter, 'Loading…' if it.tstate != -1 else 'No Preview Available')
         self._overlay(p, it, W, H)
+
+    def _hud(self, p, r, radius=10):
+        p.setPen(Qt.NoPen)
+        p.setBrush(HUD)
+        p.drawRoundedRect(r, radius, radius)
 
     def _overlay(self, p, it, W, H):
         m = it.meta
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setFont(self.big)
-        fm = QFontMetrics(self.big)
+        fm, fb = QFontMetrics(self.hud), QFontMetrics(self.hud_bold)
         row = self.win.current_row()
-        left = f'{row + 1} / {self.win.model.rowCount()}    {it.name}'
+        title = it.name
+        sub = f'{row + 1} of {self.win.model.rowCount()}'
         info = core.fmt_exposure(it.exif)
-        bar = QRect(0, 0, W, 30)
-        p.fillRect(bar, QColor(0, 0, 0, 120))
-        p.setPen(QColor('#e8e8e8'))
-        p.drawText(bar.adjusted(12, 0, 0, 0), Qt.AlignVCenter | Qt.AlignLeft, left + ('     ' + info if info else ''))
+        if info:
+            sub += '   ·   ' + info
+        w = max(fb.horizontalAdvance(title), fm.horizontalAdvance(sub)) + 28
+        r = QRectF(14, 14, w, 46)
+        self._hud(p, r)
+        p.setFont(self.hud_bold)
+        p.setPen(QColor(255, 255, 255))
+        p.drawText(r.adjusted(14, 6, 0, -22), Qt.AlignLeft | Qt.AlignVCenter, title)
+        p.setFont(self.hud)
+        p.setPen(QColor(255, 255, 255, 160))
+        p.drawText(r.adjusted(14, 23, 0, -5), Qt.AlignLeft | Qt.AlignVCenter, sub)
+
         flags = []
         if m['tagged']:
-            flags.append(('TAGGED', ACCENT))
+            flags.append(('Tagged', qc('orange')))
         if m['rating'] == -1:
-            flags.append(('REJECT', QColor('#e5484d')))
+            flags.append(('Rejected', qc('red')))
         elif m['rating'] > 0:
-            flags.append(('★' * m['rating'], ACCENT))
+            flags.append(('★' * m['rating'], qc('orange')))
         if m['label']:
-            flags.append((m['label'], LABEL_COLORS.get(m['label'].lower(), QColor('#aaa'))))
-        x = W - 12
+            flags.append((m['label'], theme.label_colors().get(m['label'].lower(), QColor('#999'))))
+        x = W - 14
+        p.setFont(self.hud_bold)
         for txt, col in flags:
-            w = fm.horizontalAdvance(txt) + 14
-            x -= w
+            bw = fb.horizontalAdvance(txt) + 26
+            x -= bw
+            br = QRectF(x, 14, bw, 28)
+            self._hud(p, br, 14)
             p.setPen(Qt.NoPen)
             p.setBrush(col)
-            p.drawRoundedRect(QRect(x, 5, w, 20), 4, 4)
-            p.setPen(QColor('#111'))
-            p.drawText(QRect(x, 5, w, 20), Qt.AlignCenter, txt)
-            x -= 6
-        # players
-        x, y = 12, H - 40
-        for n in m['people']:
-            w = fm.horizontalAdvance(n) + 22
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(15, 15, 18, 220))
-            p.drawRoundedRect(QRect(x, y, w, 28), 14, 14)
-            p.setPen(QColor('#ffd28a'))
-            p.drawText(QRect(x, y, w, 28), Qt.AlignCenter, n)
-            x += w + 6
+            p.drawEllipse(QPointF(br.left() + 11, br.center().y()), 4, 4)
+            p.setPen(QColor(255, 255, 255))
+            p.drawText(br.adjusted(19, 0, -4, 0), Qt.AlignCenter, txt)
+            x -= 8
+
+        ppl = m['people']
+        if ppl:
+            widths = [fb.horizontalAdvance(n) + 28 for n in ppl]
+            total = sum(widths) + 8 * (len(ppl) - 1)
+            x = max(14, (W - total) / 2)
+            for n, bw in zip(ppl, widths):
+                br = QRectF(x, H - 50, bw, 34)
+                self._hud(p, br, 17)
+                p.setPen(QColor(255, 255, 255))
+                p.drawText(br, Qt.AlignCenter, n)
+                x += bw + 8
         if self.zoom:
-            p.setPen(QColor('#bbb'))
-            p.drawText(QRect(0, H - 34, W - 14, 24), Qt.AlignRight | Qt.AlignVCenter, '100%')
+            br = QRectF(W - 72, H - 46, 58, 28)
+            self._hud(p, br, 14)
+            p.setPen(QColor(255, 255, 255))
+            p.setFont(self.hud_bold)
+            p.drawText(br, Qt.AlignCenter, '100%')
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -392,15 +456,30 @@ class Loupe(QWidget):
         if drag and not drag[3] and e.button() == Qt.LeftButton:
             self.set_zoom(not self.zoom, e.position())
 
-    def mouseDoubleClickEvent(self, e):
-        pass
-
     def wheelEvent(self, e):
         if not self.zoom:
             self.navigate.emit(-1 if e.angleDelta().y() > 0 else 1)
 
 
-# ------------------------------------------------------------------ panels
+# ----------------------------------------------------------------- sidebar
+
+def section(text, link=None, fn=None):
+    """Section header row; optional trailing text button."""
+    w = QWidget()
+    lay = QHBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lab = QLabel(text)
+    lab.setObjectName('section')
+    lay.addWidget(lab)
+    lay.addStretch()
+    if link:
+        b = QPushButton(link)
+        b.setObjectName('plain')
+        b.setCursor(Qt.PointingHandCursor)
+        b.clicked.connect(fn)
+        lay.addWidget(b)
+    return w
+
 
 class SlotRow(QFrame):
     clicked = Signal(int)
@@ -411,45 +490,48 @@ class SlotRow(QFrame):
         self.i = i
         self.setObjectName('slot')
         self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(30)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(6, 2, 4, 2)
-        lay.setSpacing(6)
+        lay.setContentsMargins(6, 0, 4, 0)
+        lay.setSpacing(8)
         self.key = QLabel(key_label(i))
         self.key.setObjectName('kbd')
         self.key.setAlignment(Qt.AlignCenter)
-        self.key.setFixedWidth(30)
+        self.key.setFixedSize(30, 20)
         self.name = QLabel()
         self.count = QLabel()
         self.count.setObjectName('dim')
         self.btn = QToolButton()
-        self.btn.setText('✎')
+        self.btn.setText('Edit')
         self.btn.setObjectName('editslot')
         self.btn.setToolTip('Rename this key')
+        self.btn.setCursor(Qt.PointingHandCursor)
         self.btn.clicked.connect(lambda: self.edit.emit(self.i))
+        self.btn.hide()
         lay.addWidget(self.key)
         lay.addWidget(self.name, 1)
         lay.addWidget(self.count)
         lay.addWidget(self.btn)
         self._state = None
 
+    def enterEvent(self, e):
+        self.btn.show()
+        self.count.hide()
+
+    def leaveEvent(self, e):
+        self.btn.hide()
+        self.count.show()
+
     def set(self, name, state, count):
-        self.name.setText(name or '—')
+        self.name.setText(name or 'Empty')
         self.count.setText(str(count) if count else '')
         st = state if name else 'empty'
         if st != self._state:
             self._state = st
             self.setProperty('state', st)
-            self.style().unpolish(self)
-            self.style().polish(self)
-            for w in (self.name, self.key, self.count):
+            for w in (self, self.name, self.key, self.count, self.btn):
                 w.style().unpolish(w)
                 w.style().polish(w)
-
-    def flash(self):
-        self.setProperty('state', 'flash')
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self._state = 'flash'
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -460,34 +542,21 @@ class KeysPanel(QWidget):
     def __init__(self, win):
         super().__init__()
         self.win = win
+        self.setObjectName('sidebar')
+        self.setAttribute(Qt.WA_StyledBackground, True)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 10, 10, 10)
-        lay.setSpacing(4)
-        head = QHBoxLayout()
-        t = QLabel('TAG KEYS')
-        t.setObjectName('h')
-        head.addWidget(t)
-        head.addStretch()
-        edit = QPushButton('Edit presets…')
-        edit.setObjectName('mini')
-        edit.clicked.connect(win.open_presets)
-        head.addWidget(edit)
-        lay.addLayout(head)
+        lay.setContentsMargins(12, 6, 12, 14)
+        lay.setSpacing(2)
+        lay.addWidget(section('Tag Preset', 'Edit', win.open_presets))
         sw = QHBoxLayout()
-        self.prev = QToolButton()
-        self.prev.setText('‹')
-        self.next = QToolButton()
-        self.next.setText('›')
+        sw.setSpacing(6)
         self.combo = QComboBox()
-        self.prev.clicked.connect(lambda: win.cycle_preset(-1))
-        self.next.clicked.connect(lambda: win.cycle_preset(1))
         self.combo.activated.connect(self._pick)
-        sw.addWidget(self.prev)
+        self.combo.setToolTip('Active tag preset — P / Shift+P to switch')
         sw.addWidget(self.combo, 1)
-        sw.addWidget(self.next)
         lay.addLayout(sw)
-        hint = QLabel('P / Shift+P switches preset')
-        hint.setObjectName('dim')
+        hint = QLabel('Press P to switch presets')
+        hint.setObjectName('hint')
         lay.addWidget(hint)
         self.rows = []
         for i in range(20):
@@ -500,22 +569,14 @@ class KeysPanel(QWidget):
             r.edit.connect(win.rename_slot)
             self.rows.append(r)
             lay.addWidget(r)
-        clear = QPushButton('Clear players  (Backspace)')
+        clear = QPushButton('Clear Players')
+        clear.setObjectName('plain')
+        clear.setToolTip('Remove every player from the selected photos (Backspace)')
         clear.clicked.connect(lambda: win.clear_people())
-        lay.addSpacing(6)
         lay.addWidget(clear)
-        lay.addSpacing(10)
-        mh = QHBoxLayout()
-        t2 = QLabel('METADATA PRESETS')
-        t2.setObjectName('h')
-        mh.addWidget(t2)
-        mh.addStretch()
-        me = QPushButton('Edit…')
-        me.setObjectName('mini')
-        me.clicked.connect(win.open_meta_presets)
-        mh.addWidget(me)
-        lay.addLayout(mh)
+        lay.addWidget(section('Metadata Presets', 'Edit', win.open_meta_presets))
         self.meta_box = QVBoxLayout()
+        self.meta_box.setSpacing(0)
         lay.addLayout(self.meta_box)
         lay.addStretch()
 
@@ -537,8 +598,9 @@ class KeysPanel(QWidget):
                 w.setParent(None)
                 w.deleteLater()
         for mp in cfg.meta_presets:
-            b = QPushButton('Apply  ' + mp['name'])
-            b.setObjectName('apply')
+            b = QPushButton(mp['name'])
+            b.setObjectName('row')
+            b.setIcon(self.win.icon('text'))
             b.setToolTip('Apply this metadata preset to the selected photos')
             b.clicked.connect(lambda _=False, pid=mp['id']: self.win.apply_meta_preset(pid))
             self.meta_box.addWidget(b)
@@ -553,6 +615,8 @@ class KeysPanel(QWidget):
             r.set(name, state, counts.get(name, 0))
 
 
+# --------------------------------------------------------------- inspector
+
 class EditBox(QPlainTextEdit):
     committed = Signal()
 
@@ -563,81 +627,105 @@ class EditBox(QPlainTextEdit):
             self.committed.emit()
 
 
+def card():
+    f = QFrame()
+    f.setObjectName('card')
+    lay = QVBoxLayout(f)
+    lay.setContentsMargins(12, 10, 12, 12)
+    lay.setSpacing(8)
+    return f, lay
+
+
 class InfoPanel(QScrollArea):
     def __init__(self, win):
         super().__init__()
         self.win = win
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         body = QWidget()
+        body.setObjectName('inspector')
+        body.setAttribute(Qt.WA_StyledBackground, True)
         self.setWidget(body)
         lay = QVBoxLayout(body)
-        lay.setContentsMargins(12, 10, 12, 12)
+        lay.setContentsMargins(12, 6, 12, 14)
+        lay.setSpacing(4)
+
+        lay.addWidget(section('Info'))
+        c, cl = card()
+        self.filename = QLabel()
+        self.filename.setObjectName('filename')
+        self.filename.setWordWrap(True)
         self.file = QLabel()
         self.file.setWordWrap(True)
         self.file.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.file.setObjectName('fileinfo')
-        lay.addWidget(self.file)
+        cl.addWidget(self.filename)
+        cl.addWidget(self.file)
+        lay.addWidget(c)
 
+        lay.addWidget(section('Rating & Labels'))
+        c, cl = card()
         fl = QHBoxLayout()
+        fl.setSpacing(0)
         self.stars = []
         for n in range(1, 6):
             b = QToolButton()
             b.setText('★')
             b.setObjectName('star')
+            b.setCursor(Qt.PointingHandCursor)
             b.setToolTip(f'{n} star{"s" if n > 1 else ""}  (Alt+{n})')
             b.clicked.connect(lambda _=False, n=n: win.set_rating(n))
             self.stars.append(b)
             fl.addWidget(b)
         fl.addStretch()
         self.rej = QToolButton()
-        self.rej.setText('✕ Reject')
+        self.rej.setObjectName('reject')
+        self.rej.setText('Reject')
         self.rej.setCheckable(True)
         self.rej.setToolTip('Reject (X)')
         self.rej.clicked.connect(lambda: win.set_rating(-1))
         fl.addWidget(self.rej)
-        lay.addLayout(fl)
-
+        cl.addLayout(fl)
         ll = QHBoxLayout()
+        ll.setSpacing(8)
         self.labels = {}
-        for i, (name, col) in enumerate(core.LABELS):
+        for i, (name, _) in enumerate(core.LABELS):
             b = QToolButton()
             b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
             b.setToolTip(f'{name} label' + (f'  (Alt+{i + 6})' if i < 4 else ''))
-            b.setStyleSheet(f'QToolButton{{background:{col};border-radius:9px;min-width:18px;max-width:18px;'
-                            f'min-height:18px;max-height:18px;border:2px solid transparent}}'
-                            f'QToolButton:checked{{border:2px solid white}}')
             b.clicked.connect(lambda _=False, n=name: win.set_label(n))
             self.labels[name] = b
             ll.addWidget(b)
         ll.addStretch()
-        self.tag = QCheckBox('Tagged  (T)')
+        self.tag = QCheckBox('Tagged')
+        self.tag.setToolTip('Tag / pick (T)')
         self.tag.clicked.connect(lambda: win.toggle_tagged())
         ll.addWidget(self.tag)
-        lay.addLayout(ll)
+        cl.addLayout(ll)
+        lay.addWidget(c)
 
-        ph = QLabel('PLAYERS / PEOPLE')
-        ph.setObjectName('h')
-        lay.addSpacing(6)
-        lay.addWidget(ph)
+        lay.addWidget(section('Players'))
+        c, cl = card()
         self.people = QListWidget()
         self.people.setObjectName('people')
-        self.people.setMaximumHeight(110)
+        self.people.setMaximumHeight(104)
         self.people.setToolTip('Double-click a name to remove it from the selected photos')
         self.people.itemDoubleClicked.connect(lambda it: win.remove_person(it.data(Qt.UserRole)))
-        lay.addWidget(self.people)
+        cl.addWidget(self.people)
         self.add_person = QLineEdit()
-        self.add_person.setPlaceholderText('Add a name and press Enter')
+        self.add_person.setPlaceholderText('Add Player')
         self.add_person.returnPressed.connect(self._add_person)
-        lay.addWidget(self.add_person)
+        cl.addWidget(self.add_person)
+        lay.addWidget(c)
 
-        lay.addSpacing(6)
-        h = QLabel('IPTC / CAPTION')
-        h.setObjectName('h')
-        lay.addWidget(h)
+        lay.addWidget(section('Caption & IPTC'))
+        c, cl = card()
         form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setSpacing(5)
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(7)
         self.fields = {}
         for key, label, multi in core.META_FORM:
             if multi:
@@ -648,9 +736,25 @@ class InfoPanel(QScrollArea):
                 w = QLineEdit()
                 w.editingFinished.connect(lambda k=key, w=w: w.isModified() and win.set_field(k, w.text()))
             self.fields[key] = w
-            form.addRow(label, w)
-        lay.addLayout(form)
+            lab = QLabel(label)
+            lab.setObjectName('formlabel')
+            form.addRow(lab, w)
+        cl.addLayout(form)
+        lay.addWidget(c)
         lay.addStretch()
+        self.restyle()
+
+    def restyle(self):
+        cols = theme.label_colors()
+        for name, b in self.labels.items():
+            col = cols[name.lower()].name()
+            b.setStyleSheet(f'QToolButton{{background:{col};border-radius:9px;min-width:18px;max-width:18px;'
+                            f'min-height:18px;max-height:18px;border:2px solid transparent;padding:0}}'
+                            f'QToolButton:checked{{border:2px solid {theme.C["label"]}}}')
+
+    def _short(self, path):
+        fm = QFontMetrics(self.file.font())
+        return fm.elidedText(path, Qt.ElideMiddle, max(120, self.viewport().width() - 60))
 
     def _add_person(self):
         name = self.add_person.text().strip()
@@ -662,27 +766,32 @@ class InfoPanel(QScrollArea):
         n = len(targets)
         it = targets[0] if targets else None
         if not it:
-            self.file.setText('<span style="color:#888">No photo selected</span>')
+            self.filename.setText('No Selection')
+            self.file.setText('')
         elif n > 1:
-            self.file.setText(f'<b>{n} photos selected</b><br><span style="color:#888">'
-                              f'{core.fmt_bytes(sum(t.size for t in targets))}</span>')
+            self.filename.setText(f'{n} Photos Selected')
+            self.file.setText(core.fmt_bytes(sum(t.size for t in targets)))
         else:
-            from datetime import datetime
-            when = datetime.fromtimestamp(it.time).strftime('%Y-%m-%d  %H:%M:%S') if it.time else ''
+            when = datetime.fromtimestamp(it.time).strftime('%d %b %Y  %H:%M:%S') if it.time else ''
             sub = it.exif.get('subsec')
             if sub and when:
                 when += f'.{str(sub).strip()[:2]}'
-            files = ' + '.join(f.name for f in it.files)
             cam = ' '.join(str(x) for x in (it.exif.get('make', ''), it.exif.get('model', '')) if x)
-            lines = [f'<b>{files}</b>',
-                     f'{it.w} × {it.h}   ·   {core.fmt_bytes(it.size)}' if it.w else core.fmt_bytes(it.size),
-                     when, cam, str(it.exif.get('lens') or ''), core.fmt_exposure(it.exif),
-                     f'<span style="color:#888">{it.dir}</span>']
+            sec = theme.C['secondary']
+            lines = [
+                ' + '.join(f.name for f in it.files[1:]) and f'with {" + ".join(f.name for f in it.files[1:])}',
+                f'{it.w} × {it.h}   ·   {core.fmt_bytes(it.size)}' if it.w else core.fmt_bytes(it.size),
+                when, cam, str(it.exif.get('lens') or ''), core.fmt_exposure(it.exif),
+                f'<span style="color:{sec}">{self._short(it.dir)}</span>']
             if it.save_error:
-                lines.append(f'<span style="color:#e5484d">Save failed: {it.save_error}</span>')
+                lines.append(f'<span style="color:{theme.C["red"]}">Save failed: {it.save_error}</span>')
+            self.filename.setText(it.name)
             self.file.setText('<br>'.join(x for x in lines if x))
         metas = [t.meta for t in targets]
-        common = lambda k: (metas[0][k] if metas and all(m[k] == metas[0][k] for m in metas) else None)
+
+        def common(k):
+            return metas[0][k] if metas and all(m[k] == metas[0][k] for m in metas) else None
+
         r = common('rating')
         for i, b in enumerate(self.stars):
             b.setProperty('on', bool(r and r > 0 and i < r))
@@ -700,20 +809,16 @@ class InfoPanel(QScrollArea):
                 counts[p] = counts.get(p, 0) + 1
         self.people.clear()
         for p, c in counts.items():
-            from PySide6.QtWidgets import QListWidgetItem
-            li = QListWidgetItem(p if c == n else f'{p}   ({c}/{n})')
+            li = QListWidgetItem(p if c == n else f'{p}   ({c} of {n})')
             li.setData(Qt.UserRole, p)
             self.people.addItem(li)
         for key, w in self.fields.items():
             if w.hasFocus():
                 continue
-            if key == 'keywords':
-                vals = [', '.join(m['keywords']) for m in metas]
-            else:
-                vals = [m[key] for m in metas]
+            vals = [', '.join(m['keywords']) for m in metas] if key == 'keywords' else [m[key] for m in metas]
             same = bool(vals) and all(v == vals[0] for v in vals)
             text = vals[0] if same else ''
-            w.setPlaceholderText('' if same or not vals else '‹multiple values›')
+            w.setPlaceholderText('' if same or not vals else 'Multiple Values')
             if isinstance(w, QLineEdit):
                 if w.text() != text:
                     w.setText(text)

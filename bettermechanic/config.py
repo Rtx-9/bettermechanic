@@ -32,6 +32,7 @@ def tag_preset(name, names=()):
 
 
 DEFAULT_SETTINGS = {
+    'appearance': 'system',    # system | light | dark
     'thumb_size': 190,
     'thumb_hq': True,
     'group_pairs': True,

@@ -41,6 +41,9 @@ presets per sport or team.
   with whatever Lightroom/Capture One already wrote there. Ratings, labels and the tag flag use the same
   fields as Lightroom and Photo Mechanic.
 - RAW + JPEG pairs are shown as one photo; edits go to both.
+- **Native-feeling interface** modelled on Apple's Human Interface Guidelines: system font and colors,
+  a quiet icon toolbar, a source-list sidebar, an inspector of grouped sections, and light/dark appearance
+  that follows the system (or set it in Settings). The large preview always stays dark.
 
 ## Install & run
 
@@ -92,3 +95,8 @@ python tests/samples.py demo_card     # writes a small fake memory card to try t
 
 The tests build synthetic JPEG/NEF/CR3/ORF files and check preview extraction, orientation,
 XMP/IPTC round-trips, sidecar merging and the ingest copy.
+
+## License
+
+BetterMechanic is free software, released under the [GNU General Public License v3.0](LICENSE)
+(or, at your option, any later version).

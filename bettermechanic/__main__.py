@@ -12,8 +12,9 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName('BetterMechanic')
-    theme.apply(app)
-    win = MainWindow(Config())
+    cfg = Config()
+    theme.apply(app, cfg.settings.get('appearance', 'system'))
+    win = MainWindow(cfg)
     win.show()
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
     if args and os.path.isdir(args[0]):

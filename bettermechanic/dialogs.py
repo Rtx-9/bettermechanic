@@ -16,9 +16,9 @@ from .config import key_label, new_id, tag_preset
 
 
 def _hdr(text):
-    l = QLabel(text)
-    l.setObjectName('h')
-    return l
+    lab = QLabel(text)
+    lab.setObjectName('section')
+    return lab
 
 
 # --------------------------------------------------------- tag preset board
@@ -99,7 +99,7 @@ class PresetBoard(QDialog):
     def __init__(self, win):
         super().__init__(win)
         self.win, self.cfg = win, win.cfg
-        self.setWindowTitle('Tag presets')
+        self.setWindowTitle('Tag Presets')
         self.resize(min(1280, win.width() - 60), min(860, win.height() - 40))
         lay = QVBoxLayout(self)
         intro = QLabel('Each column is a preset. Keys 1–0 tag the first ten names, Shift + 1–0 the next ten. '
@@ -117,6 +117,7 @@ class PresetBoard(QDialog):
             foot.addWidget(b)
         foot.addStretch()
         close = QPushButton('Done')
+        close.setObjectName('primary')
         close.setDefault(True)
         close.clicked.connect(self.accept)
         foot.addWidget(close)
@@ -129,7 +130,7 @@ class PresetBoard(QDialog):
         row.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         for p in self.cfg.tag_presets:
             row.addWidget(PresetColumn(self, p), 0, Qt.AlignTop)
-        add = QPushButton('+  New preset')
+        add = QPushButton('+  New Preset')
         add.setObjectName('addcol')
         add.setFixedSize(180, 120)
         add.clicked.connect(self.add)
@@ -179,6 +180,7 @@ class PresetBoard(QDialog):
         t = QPlainTextEdit('\n'.join(s for s in p['slots']).rstrip())
         lay.addWidget(t)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setObjectName('primary')
         bb.accepted.connect(d.accept)
         bb.rejected.connect(d.reject)
         lay.addWidget(bb)
@@ -216,11 +218,12 @@ class MetaPresets(QDialog):
     def __init__(self, win):
         super().__init__(win)
         self.win, self.cfg = win, win.cfg
-        self.setWindowTitle('Metadata presets')
+        self.setWindowTitle('Metadata Presets')
         self.resize(900, 680)
         lay = QHBoxLayout(self)
         left = QVBoxLayout()
         self.list = QListWidget()
+        self.list.setObjectName('presetlist')
         self.list.currentRowChanged.connect(self.show_preset)
         left.addWidget(self.list, 1)
         for text, fn in (('New', self.new), ('Duplicate', self.dup), ('Delete', self.delete)):
@@ -256,10 +259,10 @@ class MetaPresets(QDialog):
         self.mode.addItem('Replace fields filled in the preset', 'replace')
         self.mode.addItem('Only fill empty fields', 'fill')
         row.addWidget(self.mode, 1)
-        cap = QPushButton('Fill from selected photo')
+        cap = QPushButton('Fill from Selected Photo')
         cap.clicked.connect(self.capture)
         row.addWidget(cap)
-        ap = QPushButton('Apply to selection')
+        ap = QPushButton('Apply to Selection')
         ap.setObjectName('primary')
         ap.clicked.connect(self.apply)
         row.addWidget(ap)
@@ -362,7 +365,7 @@ class CopyDialog(QDialog):
         self.win, self.cfg, self.ingest = win, win.cfg, ingest
         o = self.o = dict(win.cfg.copy)
         self.job = None
-        self.setWindowTitle('Ingest' if ingest else 'Copy & export')
+        self.setWindowTitle('Ingest' if ingest else 'Copy & Export')
         self.resize(720, 640)
         outer = QVBoxLayout(self)
         self.stack = QStackedWidget()
@@ -467,7 +470,7 @@ class CopyDialog(QDialog):
         bb.addStretch()
         cancel = QPushButton('Cancel')
         cancel.clicked.connect(self.reject)
-        self.go = QPushButton('Start ingest' if ingest else 'Start copy')
+        self.go = QPushButton('Start Ingest' if ingest else 'Start Copy')
         self.go.setObjectName('primary')
         self.go.setDefault(True)
         self.go.clicked.connect(self.start)
@@ -495,7 +498,7 @@ class CopyDialog(QDialog):
         pb.addStretch()
         self.stop = QPushButton('Cancel')
         self.stop.clicked.connect(self.cancel)
-        self.open_btn = QPushButton('Open destination')
+        self.open_btn = QPushButton('Open Destination')
         self.open_btn.hide()
         self.done_btn = QPushButton('Close')
         self.done_btn.hide()
@@ -635,13 +638,19 @@ class SettingsDialog(QDialog):
             self.w[key] = c
             f.addRow('', c)
 
-        f.addRow(_hdr('BROWSING'))
+        f.addRow(_hdr('Appearance'))
+        self.appearance = QComboBox()
+        for k, t in (('system', 'Match System'), ('light', 'Light'), ('dark', 'Dark')):
+            self.appearance.addItem(t, k)
+        self.appearance.setCurrentIndex(max(0, self.appearance.findData(s.get('appearance', 'system'))))
+        f.addRow('Appearance', self.appearance)
+        f.addRow(_hdr('Browsing'))
         chk('thumb_hq', 'Sharp thumbnails (decode a larger preview after the fast embedded thumbnail)')
         chk('group_pairs', 'Show RAW + JPEG pairs as one photo')
         chk('recursive', 'Include subfolders when opening a folder')
         chk('ingest_recursive', 'Include subfolders when ingesting (memory cards use DCIM/…)')
         chk('auto_advance', 'Move to the next photo after T / X / stars')
-        f.addRow(_hdr('METADATA'))
+        f.addRow(_hdr('Metadata'))
         chk('auto_save', 'Save metadata automatically')
         self.jpeg_mode = QComboBox()
         self.jpeg_mode.addItem('Write into the JPEG file (like Photo Mechanic)', 'embed')
@@ -651,13 +660,14 @@ class SettingsDialog(QDialog):
         f.addRow('RAW files', QLabel('Always an .xmp sidecar (Lightroom / Capture One compatible)'))
         chk('write_iim', 'Also write legacy IPTC-IIM into JPEGs (newsroom systems need it)')
         chk('people_to_keywords', 'Add tagged players to keywords as well as “Person shown”')
-        f.addRow(_hdr('COPY'))
+        f.addRow(_hdr('Copy'))
         self.digits = QSpinBox()
         self.digits.setRange(1, 8)
         self.digits.setValue(int(s.get('seq_digits', 4)))
         f.addRow('{seq} digits', self.digits)
         lay.addLayout(f)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setObjectName('primary')
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -665,6 +675,8 @@ class SettingsDialog(QDialog):
     def accept(self):
         s = self.win.cfg.settings
         old_pairs = s.get('group_pairs')
+        old_look = s.get('appearance', 'system')
+        s['appearance'] = self.appearance.currentData()
         for k, c in self.w.items():
             s[k] = c.isChecked()
         s['jpeg_mode'] = self.jpeg_mode.currentData()
@@ -674,6 +686,8 @@ class SettingsDialog(QDialog):
         if old_pairs != s['group_pairs'] and self.win.root:
             self.win.toast('Reopen the folder to apply RAW+JPEG grouping')
         self.win.loader.wake()
+        if s['appearance'] != old_look:
+            self.win.apply_appearance()
 
 
 HELP = """
@@ -709,7 +723,7 @@ Pressing a player key again removes that player.</p>
 class HelpDialog(QDialog):
     def __init__(self, win):
         super().__init__(win)
-        self.setWindowTitle('Keyboard shortcuts')
+        self.setWindowTitle('Keyboard Shortcuts')
         self.resize(640, 640)
         lay = QVBoxLayout(self)
         t = QTextBrowser()
