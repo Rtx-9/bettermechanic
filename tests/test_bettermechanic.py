@@ -264,6 +264,12 @@ class TestCards(Base):
         again.overlay = core.CullStore(store_path).get(again)
         core.ensure_meta(again, SETTINGS)
         self.assertEqual((again.meta['tagged'], again.meta['rating'], again.meta['people']), (True, 3, ['Gustav']))
+        # culling saved by 0.4.x could also hold edit settings: ignored now
+        legacy = {i.name: i for i in core.build_items(*core.scan_folder(self.card))}['IMG_0002.JPG']
+        legacy.overlay = {'tagged': True, 'develop': {'Exposure2012': 1.0}}
+        core.ensure_meta(legacy, SETTINGS)
+        self.assertTrue(legacy.meta['tagged'])
+        self.assertNotIn('develop', legacy.meta)
         # clearing everything removes the entry
         again.meta.update(tagged=False, rating=0, people=[])
         store2 = core.CullStore(store_path)

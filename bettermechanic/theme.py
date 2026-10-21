@@ -199,17 +199,6 @@ QLineEdit#ptitle { font-size: ${fs_big}pt; font-weight: 700; border: 1.5px solid
   padding: 4px 14px; background: $field; }
 QLabel#pill { background: $accent; color: $accent_text; border-radius: 9px; padding: 2px 9px; font-weight: 600; font-size: ${fs_small}pt; }
 
-/* edit panel */
-QLabel#slidervalue { color: $secondary; font-family: "Cascadia Mono", Consolas, Menlo, monospace; }
-QSlider#devslider::groove:horizontal { height: 3px; background: $field_border; border-radius: 1px; }
-QSlider#devslider::sub-page:horizontal { background: $field_border; }
-QSlider#devslider::handle:horizontal { background: #ffffff; border: 1px solid $tertiary; width: 13px; height: 13px;
-  margin: -6px 0; border-radius: 7px; }
-QTreeWidget#presettree { background: $field; border: 1px solid $field_border; border-radius: 6px; padding: 2px; outline: none; }
-QTreeWidget#presettree::item { padding: 3px 2px; border-radius: 4px; }
-QTreeWidget#presettree::item:selected { background: $accent; color: $accent_text; }
-QTreeWidget#presettree::item:hover { background: $hover; }
-
 /* player picker */
 QFrame#picker { background: $card; border: 1px solid $separator; border-radius: 16px; }
 QLineEdit#pickersearch { font-size: ${fs_big}pt; padding: 8px 10px; border-radius: 10px; background: $field; }

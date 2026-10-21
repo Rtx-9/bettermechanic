@@ -442,9 +442,6 @@ class CopyDialog(QDialog):
         jl.addWidget(self.long_edge)
         jl.addWidget(self.quality)
         row('JPEG', jrow)
-        self.apply_edits = QCheckBox('Apply edits to the JPEGs (originals always keep edits in their XMP)')
-        self.apply_edits.setChecked(bool(o.get('apply_edits', True)))
-        row('', self.apply_edits)
         self.preset = QComboBox()
         self.preset.addItem('None', '')
         for p in self.cfg.meta_presets:
@@ -552,7 +549,6 @@ class CopyDialog(QDialog):
                 'long_edge': self.long_edge.value(), 'quality': self.quality.value(),
                 'meta_preset': self.preset.currentData(), 'preset_mode': self.pmode.currentData(),
                 'exists': self.exists.currentData(), 'write_meta': self.write_meta.isChecked(),
-                'apply_edits': self.apply_edits.isChecked(),
                 'open_after': self.open_after.isChecked(), 'ingest': self.ingest,
                 'skip_ingested': self.skip_ingested.isChecked()}
 
@@ -711,9 +707,6 @@ HELP = """
 <tr><td><b>F</b> (or <b>/</b>)</td><td>Player picker: type a name or number, arrows or scroll to choose, <b>Enter</b> tags
 (<b>Shift+Enter</b> tags and keeps it open, <b>Tab</b> searches all presets)</td></tr>
 <tr><td><b>Backspace</b></td><td>Remove all players from the selected photos</td></tr>
-<tr><td><b>D</b></td><td>Edit: large preview with presets and adjustments</td></tr>
-<tr><td><b>Y</b></td><td>Before / after</td></tr>
-<tr><td><b>Ctrl+Shift+C / V / R</b></td><td>Copy / paste / reset edit settings</td></tr>
 <tr><td><b>T</b></td><td>Tag / untag (pick)</td></tr>
 <tr><td><b>X</b></td><td>Reject / unreject</td></tr>
 <tr><td><b>Alt + 1 … 5</b></td><td>Star rating, <b>Alt + 0</b> clears it</td></tr>

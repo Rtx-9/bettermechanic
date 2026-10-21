@@ -31,14 +31,6 @@ presets per sport or team.
   move with the arrows or the mouse wheel, and press **Enter** to tag (**Shift+Enter** tags and keeps it open for the next
   player, **Tab** searches every preset). Typing a new name offers to add it to the roster. Paste a whole roster from a
   spreadsheet or team page (`9, Gustav Forsling, https://…/9.jpg`); players without a photo get coloured initials.
-- **Edit with Lightroom presets.** Import presets in bulk: `.xmp` and older `.lrtemplate` files, whole folders, or the `.zip`
-  packs they're sold in. They're grouped by the preset's group or folder, searchable, and apply with an **Amount** slider.
-  Edit in the app too (press **D**): white balance, exposure, contrast, highlights, shadows, whites, blacks, texture,
-  clarity, dehaze, vibrance, saturation, a colour mixer (HSL) and black & white, vignette, grain and sharpening, with
-  before/after (**Y**) and copy / paste / reset (**Ctrl+Shift+C / V / R**). Edits are saved as Lightroom / Camera Raw
-  settings in the XMP, so Lightroom and Photoshop apply them to the RAW. BetterMechanic shows a close approximation
-  based on the camera's embedded JPEG (calibrated against Lightroom Classic renders; it also renders tone curves, colour
-  grading and the Calibration panel from presets) and bakes it into JPEG exports.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
   Apply them with one click, or automatically during ingest.
@@ -62,6 +54,21 @@ presets per sport or team.
 - **Native-feeling interface** modelled on Apple's Human Interface Guidelines: system font and colors,
   a quiet icon toolbar, a source-list sidebar, an inspector of grouped sections, and light/dark appearance
   that follows the system (or set it in Settings). The large preview always stays dark.
+
+## Using it with Lightroom
+
+BetterMechanic is the fast front end; Lightroom does the editing.
+
+1. **Ingest** the card: cull and tag, then **Ingest Tagged** (or **Ingest All Except Rejected**) into the folder you
+   keep your photos in.
+2. In Lightroom Classic, **Import → Add** that folder. Lightroom reads what BetterMechanic wrote: the XMP sidecar next to
+   each RAW, or the XMP inside each JPEG.
+
+What Lightroom picks up: **star ratings**, **colour labels**, **keywords** (players are added as keywords too),
+**caption, headline, title, creator, copyright, city, location, event** and the other IPTC fields, and
+**Person Shown** (the players). The *Tagged* flag and rejects are Photo Mechanic-style culling marks that Lightroom
+doesn't read, so cull them out by ingesting only what you keep. Photos that are already in a Lightroom catalog
+need *Metadata → Read Metadata from Files* to pick up changes.
 
 ## Download (Windows)
 
@@ -99,9 +106,6 @@ Settings and presets are stored in `%APPDATA%\BetterMechanic` (Windows),
 | `Shift` + `1` … `0` | Toggle player 11–20 |
 | `P` / `Shift+P` | Next / previous tag preset |
 | `F` (or `/`) | Player picker: type a name or number, `Enter` to tag |
-| `D` | Edit: presets and adjustments |
-| `Y` | Before / after |
-| `Ctrl+Shift+C` / `V` / `R` | Copy / paste / reset edit settings |
 | `Backspace` | Remove all players from the selection |
 | `T` | Tag (pick) |
 | `X` | Reject |

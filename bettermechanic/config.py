@@ -66,7 +66,6 @@ DEFAULT_COPY = {
     'write_meta': True,
     'open_after': True,
     'skip_ingested': True,
-    'apply_edits': True,
 }
 
 

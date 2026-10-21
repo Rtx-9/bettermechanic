@@ -21,7 +21,6 @@ NS = {
     'Iptc4xmpExt': 'http://iptc.org/std/Iptc4xmpExt/2008-02-29/',
     'photomechanic': 'http://ns.camerabits.com/photomechanic/1.0/',
     'xmpNote': 'http://ns.adobe.com/xmp/note/',
-    'crs': 'http://ns.adobe.com/camera-raw-settings/1.0/',
 }
 XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
 RDF = '{%s}' % NS['rdf']
@@ -160,49 +159,7 @@ def parse_xmp(text):
     return out
 
 
-def parse_develop(text):
-    """Camera Raw (crs:) develop settings in an XMP packet."""
-    from .develop import parse_crs
-    root, _ = _load(text)
-    return parse_crs(root) if root is not None else {}
-
-
-def _crs_text(v):
-    if isinstance(v, bool):
-        return 'True' if v else 'False'
-    if isinstance(v, float):
-        return f'{v:+.2f}' if abs(v) < 10 else f'{v:.0f}'
-    if isinstance(v, int):
-        return f'{v:+d}' if v else '0'
-    return str(v)
-
-
-def _write_develop(descs, desc, develop):
-    crs = '{%s}' % NS['crs']
-    for key, v in develop.items():
-        if key.startswith('_') or key in ('AsShotTemperature', 'AsShotTint'):   # rendering hints only
-            continue
-        tag = crs + key
-        for d in descs:
-            d.attrib.pop(tag, None)
-            for c in [c for c in d if c.tag == tag]:
-                d.remove(c)
-        if v is None:
-            continue
-        if isinstance(v, list):
-            e = ET.SubElement(desc, tag)
-            seq = ET.SubElement(e, RDF + 'Seq')
-            for item in v:
-                ET.SubElement(seq, RDF + 'li').text = str(item)
-        else:
-            desc.set(tag, _crs_text(v))
-    if any(v is not None for k, v in develop.items() if not k.startswith('_')):
-        desc.set(crs + 'HasSettings', 'True')
-        if not any(crs + 'ProcessVersion' in d.attrib for d in descs):
-            desc.set(crs + 'ProcessVersion', '11.0')
-
-
-def build_xmp(meta, existing=None, people_to_keywords=True, develop=None):
+def build_xmp(meta, existing=None, people_to_keywords=True):
     root, decls = _load(existing)
     rdf = None if root is None else (root if root.tag == RDF + 'RDF' else root.find('.//' + RDF + 'RDF'))
     if rdf is None:
@@ -257,8 +214,6 @@ def build_xmp(meta, existing=None, people_to_keywords=True, develop=None):
             container(e, 'Seq', [v])
         else:
             e.text = v
-    if develop:
-        _write_develop(descs, desc, develop)
     body = ET.tostring(root, encoding='unicode')
     return '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>\n' + body + '\n<?xpacket end="w"?>'
 
@@ -355,7 +310,7 @@ def _seg(marker, payload):
     return bytes([0xFF, marker]) + struct.pack('>H', len(payload) + 2) + payload
 
 
-def rewrite_jpeg(data: bytes, meta, people_to_keywords=True, write_iim=True, develop=None):
+def rewrite_jpeg(data: bytes, meta, people_to_keywords=True, write_iim=True):
     """Return JPEG bytes with fresh XMP (+ IPTC) segments. Pixels are untouched."""
     if data[:2] != b'\xff\xd8':
         raise ValueError('not a JPEG file')
@@ -392,7 +347,7 @@ def rewrite_jpeg(data: bytes, meta, people_to_keywords=True, write_iim=True, dev
             keep.append((m, data[s:e]))
 
     new = []
-    xmp = build_xmp(meta, xmp_old, people_to_keywords, develop).encode('utf-8')
+    xmp = build_xmp(meta, xmp_old, people_to_keywords).encode('utf-8')
     if len(XMP_HDR) + len(xmp) + 2 <= 65535:
         new.append((0xE1, _seg(0xE1, XMP_HDR + xmp)))
     if write_iim:
