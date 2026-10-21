@@ -115,6 +115,42 @@ class TestPresets(unittest.TestCase):
         self.assertEqual(half['ProcessVersion'], '11.0')
 
 
+class TestWhiteBalanceReference(unittest.TestCase):
+    """Presets made in Lightroom 12+ carry the as-shot white balance of the photo they were made on."""
+    PRESET = XMP_PRESET.replace(b'crs:HasSettings="True"', b'crs:WhiteBalance="Custom" crs:Temperature="4500" '
+                                b'crs:Tint="+23" crs:AsShotTemperature="4950" crs:AsShotTint="18" crs:RedSaturation="+56" '
+                                b'crs:HasSettings="True"')
+
+    def test_reference_is_private_and_scaled_in_mired(self):
+        s = develop.parse_xmp_preset(self.PRESET)['settings']
+        self.assertNotIn('AsShotTemperature', s)
+        self.assertEqual((s['_RefTemperature'], s['_RefTint']), (4950, 18))
+        half = develop.preset_values(s, 0.5)
+        self.assertTrue(4500 < half['Temperature'] < 4950)
+        self.assertEqual(half['Tint'], 20)
+        x = M.build_xmp(M.blank(), None, develop=half)
+        self.assertNotIn('_Ref', x)
+        self.assertNotIn('AsShot', x)
+        self.assertIn('crs:Temperature=', x)
+        # older imports kept AsShot* in the settings: migrated when applied
+        old = dict(s, AsShotTemperature=s.pop('_RefTemperature'))
+        self.assertIn('_RefTemperature', develop.preset_values(old))
+
+    def test_cooler_than_as_shot_renders_cooler(self):
+        img = np.full((40, 60, 3), 150, np.uint8)
+        s = develop.parse_xmp_preset(self.PRESET)['settings']
+        only_wb = {k: s[k] for k in ('WhiteBalance', 'Temperature', '_RefTemperature')}
+        out = develop.render(img, only_wb).astype(int)
+        self.assertLess(out[..., 0].mean(), out[..., 2].mean())     # 4500 K < 4950 K as shot: bluer
+        self.assertIs(develop.render(img, {'WhiteBalance': 'Custom', 'Temperature': 4500}), img)  # no reference
+
+    def test_red_primary_turns_yellow_orange(self):
+        img = np.zeros((10, 10, 3), np.uint8)
+        img[...] = (220, 190, 30)
+        out = develop.render(img, {'RedSaturation': 80}).astype(int)
+        self.assertGreater(out[0, 0, 0] - out[0, 0, 1], 220 - 190)   # red pulls ahead of green
+
+
 class TestRender(unittest.TestCase):
     def setUp(self):
         rng = np.random.default_rng(0)

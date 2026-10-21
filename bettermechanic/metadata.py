@@ -180,6 +180,8 @@ def _crs_text(v):
 def _write_develop(descs, desc, develop):
     crs = '{%s}' % NS['crs']
     for key, v in develop.items():
+        if key.startswith('_') or key in ('AsShotTemperature', 'AsShotTint'):   # rendering hints only
+            continue
         tag = crs + key
         for d in descs:
             d.attrib.pop(tag, None)
@@ -194,7 +196,7 @@ def _write_develop(descs, desc, develop):
                 ET.SubElement(seq, RDF + 'li').text = str(item)
         else:
             desc.set(tag, _crs_text(v))
-    if any(v is not None for v in develop.values()):
+    if any(v is not None for k, v in develop.items() if not k.startswith('_')):
         desc.set(crs + 'HasSettings', 'True')
         if not any(crs + 'ProcessVersion' in d.attrib for d in descs):
             desc.set(crs + 'ProcessVersion', '11.0')

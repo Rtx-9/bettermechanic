@@ -32,7 +32,8 @@ DELTA_KEYS = (['Exposure2012', 'Contrast2012', 'Highlights2012', 'Shadows2012', 
                'SplitToningHighlightSaturation', 'ColorGradeMidtoneSat', 'ColorGradeShadowLum',
                'ColorGradeMidtoneLum', 'ColorGradeHighlightLum', 'ColorGradeGlobalSat', 'ColorGradeGlobalLum']
               + [f'{k}Adjustment{c}' for k in ('Hue', 'Saturation', 'Luminance') for c in COLORS]
-              + [f'GrayMixer{c}' for c in COLORS])
+              + [f'GrayMixer{c}' for c in COLORS]
+              + ['RedHue', 'RedSaturation', 'GreenHue', 'GreenSaturation', 'BlueHue', 'BlueSaturation', 'ShadowTint'])
 CURVE_KEYS = ['ToneCurvePV2012', 'ToneCurvePV2012Red', 'ToneCurvePV2012Green', 'ToneCurvePV2012Blue']
 DEFAULTS = {'Sharpness': 40, 'SharpenRadius': 1.0, 'PostCropVignetteMidpoint': 50, 'PostCropVignetteFeather': 50,
             'PostCropVignetteRoundness': 0, 'GrainSize': 25, 'ParametricShadowSplit': 25,
@@ -56,7 +57,8 @@ HUE_KEYS = ['SplitToningShadowHue', 'SplitToningHighlightHue', 'ColorGradeMidton
             'ColorGradeShadowHue', 'ColorGradeHighlightHue']
 NUMERIC = set(DELTA_KEYS) | set(DEFAULTS) | set(HUE_KEYS) | {
     'Temperature', 'Tint', 'Exposure', 'Contrast', 'ConvertToGrayscale', 'SharpenDetail', 'SharpenEdgeMasking',
-    'LuminanceSmoothing', 'ColorNoiseReduction', 'GrainFrequency', 'ColorGradeShadowSat', 'ColorGradeHighlightSat'}
+    'LuminanceSmoothing', 'ColorNoiseReduction', 'GrainFrequency', 'ColorGradeShadowSat', 'ColorGradeHighlightSat',
+    'AsShotTemperature', 'AsShotTint', '_RefTemperature', '_RefTint'}
 
 
 def clean(settings):
@@ -85,7 +87,9 @@ def is_active(settings):
         return True
     if num(s, 'Sharpness') > 40.5:
         return True
-    if s.get('WhiteBalance') not in (None, 'As Shot') and ('Temperature' in s or 'Tint' in s):
+    if s.get('WhiteBalance') not in (None, 'As Shot') and (
+            ('Temperature' in s and s.get('_RefTemperature', s.get('AsShotTemperature')))
+            or ('Tint' in s and s.get('_RefTint', s.get('AsShotTint')) is not None)):
         return True
     return False
 
@@ -130,6 +134,22 @@ def parse_crs(root):
     return out
 
 
+def _as_reference(s):
+    """A preset's as-shot white balance describes the photo it was made on: keep it only as a private
+    reference for rendering (keys starting with '_' are never written to a photo's XMP)."""
+    for src, dst in (('AsShotTemperature', '_RefTemperature'), ('AsShotTint', '_RefTint')):
+        if src in s:
+            s[dst] = s.pop(src)
+        if isinstance(s.get(dst), str):
+            s[dst] = _typed(s[dst])
+    return s
+
+
+def preset_values(settings, amount=1.0):
+    """Settings to apply for a preset at `amount` (also migrates presets imported by older versions)."""
+    return scale_settings(_as_reference(dict(settings)), amount)
+
+
 def parse_xmp_preset(data: bytes):
     root = ET.fromstring(data)
     s = parse_crs(root)
@@ -141,6 +161,7 @@ def parse_xmp_preset(data: bytes):
               'SupportsNormalDynamicRange', 'SupportsSceneReferred', 'SupportsOutputReferred', 'CameraModelRestriction',
               'Copyright', 'ContactInfo', 'Version', 'Cluster', 'SortName', 'ShortName', 'Description'):
         s.pop(k, None)
+    _as_reference(s)
     kind = s.pop('PresetType', 'Normal')
     if kind == 'Look':                 # a profile, not a develop preset
         return None
@@ -229,6 +250,7 @@ def parse_lrtemplate(text: str):
             s[k] = [f'{pts[j]}, {pts[j + 1]}' for j in range(0, len(pts) - 1, 2)]
         elif isinstance(v, (int, float, bool, str)):
             s[k] = v
+    _as_reference(s)
     name = root.get('title') or root.get('internalName') or ''
     return {'name': str(name), 'group': '', 'settings': s}
 
@@ -384,6 +406,12 @@ def scale_settings(settings, amount):
             out[k] = [f'{round(x)}, {round(x + (y - x) * amount)}' for x, y in pts]
         elif k == 'Sharpness' and isinstance(v, (int, float)):
             out[k] = round(40 + (v - 40) * amount)
+        elif k == 'Temperature' and isinstance(settings.get('_RefTemperature'), (int, float)):
+            ref = float(settings['_RefTemperature'])            # interpolate in mired, like Lightroom
+            mired = 1e6 / ref + (1e6 / max(2000.0, float(v)) - 1e6 / ref) * amount
+            out[k] = round(1e6 / mired)
+        elif k == 'Tint' and isinstance(settings.get('_RefTint'), (int, float)) and isinstance(v, (int, float)):
+            out[k] = round(settings['_RefTint'] + (v - settings['_RefTint']) * amount)
         else:
             out[k] = v
     return out
@@ -421,6 +449,14 @@ def blur(a, sigma):
     return _binomial(a, max(1, round(sigma ** 2)))
 
 
+def guided(img, sigma, eps):
+    """Edge-preserving smoothing (guided filter with the image as its own guide): no halos at strong edges."""
+    mean = blur(img, sigma)
+    var = np.maximum(blur(img * img, sigma) - mean * mean, 0)
+    a = var / (var + eps)
+    return blur(a, sigma) * img + blur(mean - a * mean, sigma)
+
+
 def _curve_lut(pts, size=1024):
     """Monotone cubic (Fritsch-Carlson) curve through 0-255 points -> LUT on 0..1."""
     pts = sorted(set((min(255.0, max(0.0, x)), min(255.0, max(0.0, y))) for x, y in pts))
@@ -454,11 +490,12 @@ def _apply_lut(x, lut):
     return lut[idx]
 
 
-def _band_lut(values):
-    """Per-degree blend of 8 per-band values (Lightroom's colour mixer bands, triangular weights)."""
+def _band_lut(values, centers=HUE_CENTERS):
+    """Per-degree blend of per-band values (Lightroom's colour bands, triangular weights between centres)."""
     hue = np.arange(360, dtype=np.float32)
     out = np.zeros(360, np.float32)
-    n = len(HUE_CENTERS)
+    n = len(centers)
+    HUE_CENTERS = centers                                       # noqa: N806 (local alias)
     for i, c in enumerate(HUE_CENTERS):
         if not values[i]:
             continue
@@ -470,6 +507,15 @@ def _band_lut(values):
     return out
 
 
+# Strength of each control. Calibrated against Lightroom Classic renders of the same raw files
+# (camera JPEG preview + these gains ~ Lightroom on the raw); see tests/test_develop.py.
+G = {
+    'wb': 204.0, 'tint': 160.0, 'local': 0.84, 'hi_lo': 0.71, 'hi': 0.35, 'sh': 0.26, 'sh_hi': 0.46, 'wh': 0.4,
+    'bl': 0.43, 'con': 0.38, 'clar': 2.44, 'tex': 1.84, 'sharp': 2.0, 'deh': 0.036, 'ck': 0.35, 'hsl_s': 1.18,
+    'sat': 1.95, 'vib': 1.42, 'hsl_h': 0.26, 'hsl_l': 0.25, 'cal_s': 0.57, 'cal_h': 1.0,
+}
+
+
 def render(rgb8: np.ndarray, settings) -> np.ndarray:
     """Apply develop settings to an sRGB uint8 HxWx3 image. Returns uint8."""
     s = clean(settings)
@@ -479,17 +525,19 @@ def render(rgb8: np.ndarray, settings) -> np.ndarray:
     h, w = img.shape[:2]
     size = max(h, w)
 
-    # white balance + exposure (exact in gamma space for a power-law gamma)
-    mired = 0.0
+    # white balance (relative to as shot) + exposure (exact in gamma space for a power-law gamma)
+    mired = num(s, 'IncrementalTemperature') * 0.9
     tint = num(s, 'IncrementalTint') * 0.9
-    mired += num(s, 'IncrementalTemperature') * 0.9
     if s.get('WhiteBalance') not in (None, 'As Shot'):
-        if 'Temperature' in s:
-            mired += 1e6 / 5500 - 1e6 / max(2000.0, num(s, 'Temperature', 5500))
-        tint += num(s, 'Tint') * 0.6
+        ref_t = s.get('_RefTemperature', s.get('AsShotTemperature'))
+        ref_g = s.get('_RefTint', s.get('AsShotTint'))
+        if ref_t and 'Temperature' in s:          # absolute Kelvin only means something against the as-shot value
+            mired += 1e6 / max(2000.0, float(ref_t)) - 1e6 / max(2000.0, num(s, 'Temperature', 5500))
+        if ref_g is not None and 'Tint' in s:
+            tint += num(s, 'Tint') - float(ref_g)
     ev = num(s, 'Exposure2012') or num(s, 'Exposure')
     if ev or mired or tint:
-        k = np.array([2 ** (mired / 110), 2 ** (-tint / 160), 2 ** (-mired / 110)], np.float32)
+        k = np.array([2 ** (mired / G['wb']), 2 ** (-tint / G['tint']), 2 ** (-mired / G['wb'])], np.float32)
         k *= 2 ** ev / (0.2126 * k[0] + 0.7152 * k[1] + 0.0722 * k[2])
         img *= k ** (1 / 2.2)
         if ev > 0:                       # soft roll-off instead of a hard clip
@@ -497,30 +545,55 @@ def render(rgb8: np.ndarray, settings) -> np.ndarray:
             over = img > kn
             img[over] = kn + (1 - kn) * (1 - np.exp(-(img[over] - kn) / (1 - kn)))
 
+    # calibration panel, primary saturation: pushes each channel away from the other two (so +red turns
+    # yellows toward orange, like moving the camera's red primary outward), brightness kept
+    cal_s = [num(s, k) for k in ('RedSaturation', 'GreenSaturation', 'BlueSaturation')]
+    if any(cal_s):
+        kr, kg, kb = (G['cal_s'] * v / 100 for v in cal_s)
+        r, g, b = img[..., 0], img[..., 1], img[..., 2]
+        r2, g2, b2 = r + kr * (r - 0.5 * (g + b)), g + kg * (g - 0.5 * (r + b)), b + kb * (b - 0.5 * (r + g))
+        d = (r + g + b - r2 - g2 - b2) * (1 / 3)
+        img = np.stack([r2 + d, g2 + d, b2 + d], axis=2)
+
     # split into brightness + two opponent colour axes
     m = img.mean(axis=2)
     c1 = img[..., 0] - 0.5 * (img[..., 1] + img[..., 2])
     c2 = 0.8660254 * (img[..., 1] - img[..., 2])
     m0 = m.copy()
 
-    # tone
+    # calibration panel (red / green / blue primaries): broad hue + saturation shifts around 0/120/240 degrees
+    cal_h = [num(s, k) for k in ('RedHue', 'GreenHue', 'BlueHue')]
+    if any(cal_h):
+        prim = [0.0, 120.0, 240.0]
+        hue_idx = (np.degrees(np.arctan2(c2, c1)).astype(np.int32)) % 360
+        if any(cal_h):
+            ang = _band_lut(cal_h, prim)[hue_idx] * (math.radians(0.3) * G['cal_h'])
+            ca, sa = np.cos(ang), np.sin(ang)
+            c1, c2 = c1 * ca - c2 * sa, c1 * sa + c2 * ca
+    st = num(s, 'ShadowTint') / 100
+    if st:
+        shm = 1 - _smooth(0.0, 0.5, m)
+        c2 = c2 - st * 0.08 * shm            # + = magenta, - = green
+        c1 = c1 + st * 0.04 * shm
+
+    # tone (highlights / shadows follow a blurred brightness, so they act locally like Lightroom's)
     hi, sh, wh, bl = (num(s, k) / 100 for k in ('Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'))
     if hi or sh:
-        base = 0.6 * blur(m, size * 0.02) + 0.4 * m
+        base = G['local'] * guided(m, size * 0.02, 0.02) + (1 - G['local']) * m
         if hi:
-            mk = _smooth(0.5, 1.0, base)
-            m = m + hi * 0.22 * mk * (m if hi < 0 else (1 - m))
+            mk = _smooth(G['hi_lo'], 1.0, base)
+            m = m + hi * G['hi'] * mk * (m if hi < 0 else (1 - m))
         if sh:
-            mk = 1 - _smooth(0.0, 0.55, base)
-            m = m + sh * 0.38 * mk * ((1 - m) if sh > 0 else m)
+            mk = 1 - _smooth(0.0, G['sh_hi'], base)
+            m = m + sh * G['sh'] * mk * ((1 - m) if sh > 0 else m)
     if wh:
-        m = m + wh * 0.18 * _smooth(0.55, 1.0, m)
+        m = m + wh * G['wh'] * _smooth(0.5, 1.0, m)
     if bl:
-        m = m + bl * 0.12 * (1 - _smooth(0.0, 0.35, m))
+        m = m + bl * G['bl'] * (1 - _smooth(0.0, 0.4, m))
     con = num(s, 'Contrast2012') / 100
     if con:
         mc = np.clip(m, 0, 1)
-        m = m + con * 0.38 * (mc - 0.5) * 4 * mc * (1 - mc)
+        m = m + con * G['con'] * (mc - 0.5) * 4 * mc * (1 - mc)
     par = [num(s, k) / 100 for k in ('ParametricShadows', 'ParametricDarks', 'ParametricLights', 'ParametricHighlights')]
     if any(par):
         s1, s2, s3 = (num(s, k) / 100 for k in ('ParametricShadowSplit', 'ParametricMidtoneSplit',
@@ -535,26 +608,30 @@ def render(rgb8: np.ndarray, settings) -> np.ndarray:
     if pts and pts != [(0, 0), (255, 255)]:
         m = _apply_lut(np.clip(m, 0, 1), _curve_lut(pts))
 
-    # presence
+    # presence: local contrast, softly limited so strong edges don't get halos
+    def detail(sigma, limit, edge_aware=False):
+        d = m - (guided(m, sigma, 0.008) if edge_aware else blur(m, sigma))
+        return limit * np.tanh(d * (1 / limit))
+
     tex, cla, deh = (num(s, k) / 100 for k in ('Texture', 'Clarity2012', 'Dehaze'))
     if cla:
-        m = m + cla * 0.9 * (m - blur(m, size * 0.012)) * (0.3 + 2.8 * np.clip(m * (1 - m), 0, 0.25))
+        m = m + cla * G['clar'] * detail(size * 0.012, 0.08, True) * (0.3 + 2.8 * np.clip(m * (1 - m), 0, 0.25))
     if tex:
-        m = m + tex * 0.7 * (m - blur(m, max(1.0, size * 0.0015)))
-    sharp = max(0.0, num(s, 'Sharpness') - 40) / 110
+        m = m + tex * G['tex'] * detail(max(1.0, size * 0.0015), 0.04)
+    sharp = max(0.0, num(s, 'Sharpness') - 40) / 110        # camera JPEGs are already sharpened once
     if sharp:
-        rad = max(0.5, num(s, 'SharpenRadius', 1.0)) * size / 4000
-        m = m + sharp * 1.1 * (m - blur(m, max(0.7, rad)))
+        rad = max(0.5, num(s, 'SharpenRadius', 1.0)) * size / 5500
+        m = m + sharp * G['sharp'] * detail(max(0.6, rad), 0.05)
     chroma_k = np.ones_like(m)
     if deh > 0:
-        m = (m - deh * 0.13) / (1 - deh * 0.13)
+        m = (m - deh * G['deh']) / (1 - deh * G['deh'])
         chroma_k *= 1 + 0.35 * deh
     elif deh < 0:
         m = m * (1 + deh * 0.3) - deh * 0.3 * 0.82
         chroma_k *= 1 + 0.45 * deh
 
-    # keep colours proportional to the brightness change
-    chroma_k *= np.clip((np.clip(m, 0, 1.2) + 0.04) / (m0 + 0.04), 0.3, 3.0)
+    # colours follow the brightness change, but only partly (full ratio over-saturates lifted shadows)
+    chroma_k *= np.clip((np.clip(m, 0, 1.2) + 0.04) / (m0 + 0.04), 0.6, 1.6) ** G['ck']
 
     # colour
     vib, sat = num(s, 'Vibrance') / 100, num(s, 'Saturation') / 100
@@ -575,20 +652,20 @@ def render(rgb8: np.ndarray, settings) -> np.ndarray:
         else:
             hv, sv, lv = ([hsl[f'{k}Adjustment{c}'] for c in COLORS] for k in ('Hue', 'Saturation', 'Luminance'))
             if any(hv):
-                ang = _band_lut(hv)[hue_idx] * (math.radians(0.3))
+                ang = _band_lut(hv)[hue_idx] * (math.radians(0.3) * G['hsl_h'])
                 ca, sa = np.cos(ang), np.sin(ang)
                 c1, c2 = c1 * ca - c2 * sa, c1 * sa + c2 * ca
             if any(sv):
-                f = np.clip(1 + _band_lut(sv)[hue_idx] / 100, 0, 2.5)
+                f = np.clip(1 + G['hsl_s'] * _band_lut(sv)[hue_idx] / 100, 0, 2.5)
                 c1, c2 = c1 * f, c2 * f
             if any(lv):
-                m = m + _band_lut(lv)[hue_idx] * (0.3 / 100) * cn
+                m = m + _band_lut(lv)[hue_idx] * (0.3 / 100 * G['hsl_l']) * cn
     if gray:
         c1 = c2 = np.zeros_like(m)
     else:
         if vib or sat:
             cn = np.clip(np.hypot(c1, c2) * 2.2, 0, 1)
-            f = np.clip((1 + sat) * (1 + vib * (1 - cn) * (1.2 if vib > 0 else 1)), 0, 3)
+            f = np.clip((1 + G['sat'] * sat) * (1 + G['vib'] * vib * (1 - cn)), 0, 3)
             c1, c2 = c1 * f, c2 * f
         if grade:
             mc = np.clip(m, 0, 1)

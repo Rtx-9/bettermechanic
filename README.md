@@ -36,8 +36,9 @@ presets per sport or team.
   Edit in the app too (press **D**): white balance, exposure, contrast, highlights, shadows, whites, blacks, texture,
   clarity, dehaze, vibrance, saturation, a colour mixer (HSL) and black & white, vignette, grain and sharpening, with
   before/after (**Y**) and copy / paste / reset (**Ctrl+Shift+C / V / R**). Edits are saved as Lightroom / Camera Raw
-  settings in the XMP, so Lightroom and Photoshop apply them to the RAW; BetterMechanic shows a close approximation
-  based on the camera's embedded JPEG, and bakes it into JPEG exports.
+  settings in the XMP, so Lightroom and Photoshop apply them to the RAW. BetterMechanic shows a close approximation
+  based on the camera's embedded JPEG (calibrated against Lightroom Classic renders; it also renders tone curves, colour
+  grading and the Calibration panel from presets) and bakes it into JPEG exports.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
   Apply them with one click, or automatically during ingest.

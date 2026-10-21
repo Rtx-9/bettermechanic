@@ -825,7 +825,7 @@ class MainWindow(QMainWindow):
         self.toast(f'Applied “{p["name"]}” to {len(ts)} photo{"s" if len(ts) != 1 else ""}')
 
     def _apply_preset_amount(self, ts, p, amount):
-        vals = develop.scale_settings(p['settings'], amount)
+        vals = develop.preset_values(p['settings'], amount)
         for it in ts:
             before = self.preset_ctx['before'].get(it.id)
             if before is None:
