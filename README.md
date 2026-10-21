@@ -66,8 +66,10 @@ BetterMechanic is the fast front end; Lightroom does the editing.
 
 What Lightroom picks up: **star ratings**, **colour labels**, **keywords** (players are added as keywords too),
 **caption, headline, title, creator, copyright, city, location, event** and the other IPTC fields, and
-**Person Shown** (the players). The *Tagged* flag and rejects are Photo Mechanic-style culling marks that Lightroom
-doesn't read, so cull them out by ingesting only what you keep. Photos that are already in a Lightroom catalog
+**Person Shown** (the players). Lightroom doesn't read Photo Mechanic's *Tagged* flag, so in **Settings → Tagged in
+Lightroom** you can have tagged photos also get a **colour label**, a **star rating** or a **"Tagged" keyword** when
+files are written. Your own labels and higher ratings are never replaced, and untagging a photo removes the mark.
+Rejected photos simply aren't ingested. Photos that are already in a Lightroom catalog
 need *Metadata → Read Metadata from Files* to pick up changes.
 
 ## Download (Windows)

@@ -227,7 +227,7 @@ def write_item_meta(item, meta, settings):
         if f.kind == 'jpeg' and embed:
             with open(f.path, 'rb') as fh:
                 data = fh.read()
-            _atomic_write(f.path, M.rewrite_jpeg(data, meta, p2k, iim))
+            _atomic_write(f.path, M.rewrite_jpeg(data, meta, p2k, iim, settings.get('lr_tag_mark')))
             st = os.stat(f.path)
             f.size, f.mtime = st.st_size, st.st_mtime
             if f is item.pv:
@@ -243,7 +243,7 @@ def write_item_meta(item, meta, settings):
                     existing = fh.read()
             except OSError:
                 pass
-        _atomic_write(path, M.build_xmp(meta, existing, p2k).encode('utf-8'))
+        _atomic_write(path, M.build_xmp(meta, existing, p2k, settings.get('lr_tag_mark')).encode('utf-8'))
         item.sidecar = path
 
 

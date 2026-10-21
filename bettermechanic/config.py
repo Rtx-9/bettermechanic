@@ -48,6 +48,7 @@ DEFAULT_SETTINGS = {
     'seq': 1,
     'seq_digits': 4,
     'date_locale': 'en',
+    'lr_tag_mark': 'none',      # what tagged photos also get for Lightroom, see metadata.MARK_CHOICES
 }
 
 DEFAULT_COPY = {

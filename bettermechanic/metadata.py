@@ -21,6 +21,7 @@ NS = {
     'Iptc4xmpExt': 'http://iptc.org/std/Iptc4xmpExt/2008-02-29/',
     'photomechanic': 'http://ns.camerabits.com/photomechanic/1.0/',
     'xmpNote': 'http://ns.adobe.com/xmp/note/',
+    'bettermechanic': 'http://ns.bettermechanic.app/1.0/',
 }
 XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
 RDF = '{%s}' % NS['rdf']
@@ -143,6 +144,70 @@ def _conv(kind, v):
     return ', '.join(v) if isinstance(v, list) else str(v)
 
 
+# ------------------------------------------------- Lightroom mark for tagged photos
+#
+# Lightroom doesn't read Photo Mechanic's "Tagged" flag, so tagged photos can also get something it does read:
+# a colour label, a star rating or a keyword. The mark is added only when files are written (never stored in
+# the app's own metadata), and the file remembers what it replaced, so untagging removes it and reading the
+# file back doesn't turn it into a "real" label / rating / keyword.
+
+MARK_PROPS = ('LightroomMark', 'MarkValue', 'MarkBefore')
+MARK_CHOICES = [('none', 'Nothing (Photo Mechanic tag only)')] + \
+    [(f'label:{c}', f'{c} color label') for c in ('Green', 'Red', 'Yellow', 'Blue', 'Purple')] + \
+    [(f'stars:{n}', f'{n} star{"s" if n > 1 else ""} (if rated lower)') for n in range(1, 6)] + \
+    [('keyword:Tagged', 'Keyword “Tagged”')]
+
+
+def parse_mark(spec):
+    """'label:Green' / 'stars:1' / 'keyword:Tagged' -> (mode, value), or None."""
+    if not spec or spec == 'none' or ':' not in str(spec):
+        return None
+    mode, value = str(spec).split(':', 1)
+    if mode == 'stars':
+        try:
+            return mode, max(1, min(5, int(value)))
+        except ValueError:
+            return None
+    return (mode, value) if mode in ('label', 'keyword') and value else None
+
+
+def apply_mark(meta, spec):
+    """Meta as written for Lightroom, plus the mark record ({prop: text}) or None."""
+    mark = parse_mark(spec)
+    if not mark or not meta.get('tagged'):
+        return meta, None
+    mode, value = mark
+    out = dict(meta)
+    if mode == 'label' and not meta.get('label'):
+        out['label'] = value
+        before = ''
+    elif mode == 'stars' and 0 <= int(meta.get('rating') or 0) < value:
+        out['rating'] = value
+        before = str(int(meta.get('rating') or 0))
+    elif mode == 'keyword' and value not in (meta.get('keywords') or []):
+        out['keywords'] = list(meta.get('keywords') or []) + [value]
+        before = ''
+    else:
+        return meta, None                      # the user's own value wins: nothing to add
+    return out, {'LightroomMark': mode, 'MarkValue': str(value), 'MarkBefore': before}
+
+
+def _undo_mark(out, descs):
+    bm = '{%s}' % NS['bettermechanic']
+    for d in descs:
+        mode = d.attrib.get(bm + 'LightroomMark')
+        if not mode:
+            continue
+        value, before = d.attrib.get(bm + 'MarkValue', ''), d.attrib.get(bm + 'MarkBefore', '')
+        if mode == 'label' and out.get('label') == value:
+            out['label'] = before
+        elif mode == 'stars' and str(out.get('rating')) == value:
+            out['rating'] = int(before) if before.lstrip('-').isdigit() else 0
+        elif mode == 'keyword' and 'keywords' in out:
+            out['keywords'] = [k for k in out['keywords'] if k != value]
+        return
+
+
 def parse_xmp(text):
     """Return only the fields present in the packet."""
     root, _ = _load(text)
@@ -156,10 +221,11 @@ def parse_xmp(text):
             if v is not None:
                 out[key] = _conv(kind, v)
                 break
+    _undo_mark(out, descs)
     return out
 
 
-def build_xmp(meta, existing=None, people_to_keywords=True):
+def build_xmp(meta, existing=None, people_to_keywords=True, lr_mark=None):
     root, decls = _load(existing)
     rdf = None if root is None else (root if root.tag == RDF + 'RDF' else root.find('.//' + RDF + 'RDF'))
     if rdf is None:
@@ -176,12 +242,17 @@ def build_xmp(meta, existing=None, people_to_keywords=True):
         descs = [ET.SubElement(rdf, RDF + 'Description', {RDF + 'about': ''})]
     ours = {'{%s}%s' % (NS[p], prop) for _, p, prop, _ in FIELDS}
     ours.add('{%s}HasExtendedXMP' % NS['xmpNote'])
+    ours.update('{%s}%s' % (NS['bettermechanic'], p) for p in MARK_PROPS)
     for d in descs:
         for a in [a for a in d.attrib if a in ours]:
             del d.attrib[a]
         for c in [c for c in d if c.tag in ours]:
             d.remove(c)
     desc = descs[0]
+    meta, mark = apply_mark(meta, lr_mark)
+    if mark:
+        for prop, text in mark.items():
+            desc.set('{%s}%s' % (NS['bettermechanic'], prop), text)
 
     values = dict(meta)
     kws = list(meta.get('keywords') or [])
@@ -310,7 +381,7 @@ def _seg(marker, payload):
     return bytes([0xFF, marker]) + struct.pack('>H', len(payload) + 2) + payload
 
 
-def rewrite_jpeg(data: bytes, meta, people_to_keywords=True, write_iim=True):
+def rewrite_jpeg(data: bytes, meta, people_to_keywords=True, write_iim=True, lr_mark=None):
     """Return JPEG bytes with fresh XMP (+ IPTC) segments. Pixels are untouched."""
     if data[:2] != b'\xff\xd8':
         raise ValueError('not a JPEG file')
@@ -347,7 +418,8 @@ def rewrite_jpeg(data: bytes, meta, people_to_keywords=True, write_iim=True):
             keep.append((m, data[s:e]))
 
     new = []
-    xmp = build_xmp(meta, xmp_old, people_to_keywords).encode('utf-8')
+    xmp = build_xmp(meta, xmp_old, people_to_keywords, lr_mark).encode('utf-8')
+    meta = apply_mark(meta, lr_mark)[0]          # IPTC-IIM gets the same keywords
     if len(XMP_HDR) + len(xmp) + 2 <= 65535:
         new.append((0xE1, _seg(0xE1, XMP_HDR + xmp)))
     if write_iim:

@@ -668,6 +668,15 @@ class SettingsDialog(QDialog):
         f.addRow('RAW files', QLabel('Always an .xmp sidecar (Lightroom / Capture One compatible)'))
         chk('write_iim', 'Also write legacy IPTC-IIM into JPEGs (newsroom systems need it)')
         chk('people_to_keywords', 'Add tagged players to keywords as well as “Person shown”')
+        from .metadata import MARK_CHOICES
+        self.lr_mark = QComboBox()
+        for key, text in MARK_CHOICES:
+            self.lr_mark.addItem(text, key)
+        self.lr_mark.setCurrentIndex(max(0, self.lr_mark.findData(s.get('lr_tag_mark', 'none'))))
+        self.lr_mark.setToolTip('Lightroom doesn\'t read the Tagged flag. Tagged photos can also get a label, rating '
+                                'or keyword that Lightroom shows after import. Your own labels and higher ratings '
+                                'are never replaced, and untagging removes the mark.')
+        f.addRow('Tagged in Lightroom', self.lr_mark)
         f.addRow(_hdr('Copy'))
         self.digits = QSpinBox()
         self.digits.setRange(1, 8)
@@ -688,6 +697,7 @@ class SettingsDialog(QDialog):
         for k, c in self.w.items():
             s[k] = c.isChecked()
         s['jpeg_mode'] = self.jpeg_mode.currentData()
+        s['lr_tag_mark'] = self.lr_mark.currentData()
         s['seq_digits'] = self.digits.value()
         self.win.cfg.save()
         super().accept()

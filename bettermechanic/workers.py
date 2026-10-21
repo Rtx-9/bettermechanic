@@ -342,7 +342,7 @@ class CopyJob(threading.Thread):
                 a = analyze(it.pv.path)
             data = imaging.render_jpeg(it.pv.path, a, int(o.get('long_edge') or 0), int(o.get('quality') or 90))
             if write_meta:
-                data = M.rewrite_jpeg(data, meta, p2k, iim)
+                data = M.rewrite_jpeg(data, meta, p2k, iim, st.get('lr_tag_mark'))
             self._write(os.path.join(d, names[0]), data)
             return True
         names = self._names(d, [base + '.' + f.ext for f in it.files])
@@ -353,7 +353,7 @@ class CopyJob(threading.Thread):
             target = os.path.join(d, n)
             if f.kind == 'jpeg' and write_meta and embed:
                 with open(f.path, 'rb') as fh:
-                    self._write(target, M.rewrite_jpeg(fh.read(), meta, p2k, iim))
+                    self._write(target, M.rewrite_jpeg(fh.read(), meta, p2k, iim, st.get('lr_tag_mark')))
             else:
                 self._stream(f.path, target)
         need_sidecar = any(f.kind != 'jpeg' or not embed for f in it.files)
@@ -365,6 +365,6 @@ class CopyJob(threading.Thread):
                         existing = fh.read()
                 except OSError:
                     pass
-            text = M.build_xmp(meta, existing, p2k) if write_meta else existing
+            text = M.build_xmp(meta, existing, p2k, st.get('lr_tag_mark')) if write_meta else existing
             self._write(os.path.join(d, os.path.splitext(names[0])[0] + '.xmp'), text.encode('utf-8'))
         return True
