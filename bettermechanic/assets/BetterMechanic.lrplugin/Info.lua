@@ -17,5 +17,5 @@ return {
 	LrExportMenuItems = {
 		{ title = 'BetterMechanic Players...', file = 'Players.lua' },
 	},
-	VERSION = { major = 0, minor = 10, revision = 0, build = 1 },
+	VERSION = { major = 0, minor = 11, revision = 0, build = 1 },
 }
