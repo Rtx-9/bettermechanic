@@ -74,6 +74,10 @@ def main():
     shutil.copytree(os.path.join(out, 'BetterMechanic'), folder)
     shutil.copy2(os.path.join(ROOT, 'LICENSE'), folder)
     shutil.make_archive(folder, 'zip', dist, os.path.basename(folder))
+    # the Lightroom Classic plugin on its own (the app installs it too)
+    plugin = os.path.join(ROOT, 'bettermechanic', 'assets', 'BetterMechanic.lrplugin')
+    shutil.make_archive(os.path.join(dist, f'BetterMechanic-Lightroom-Plugin-{__version__}'), 'zip',
+                        os.path.dirname(plugin), os.path.basename(plugin))
     for f in sorted(os.listdir(dist)):
         p = os.path.join(dist, f)
         if os.path.isfile(p):

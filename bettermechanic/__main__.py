@@ -15,6 +15,7 @@ def _selftest(app, win, path):
         if (win.items and done == len(win.items)) or time.time() - t0 > 30:
             from . import __version__
             from .avatars import face_detection_available
+            from .lightroom import plugin_source
             report = {'version': __version__, 'items': len(win.items), 'thumbs': done,
                       'previews_ok': sum(1 for it in win.items if it.tstate == 2),
                       'no_preview': sum(1 for it in win.items if it.tstate == -1), 'card_mode': win.ingest,
@@ -24,6 +25,7 @@ def _selftest(app, win, path):
                       'staff': sum(1 for p in win.cfg.tag_presets for r in p.get('roster') or [] if r.get('role')
                                    and p.get('liiga') != 'referees'),
                       'face_detection': face_detection_available(),
+                      'lightroom_plugin': os.path.exists(os.path.join(plugin_source(), 'Players.lua')),
                       'seconds': round(time.time() - t0, 2)}
             with open(path, 'w', encoding='utf-8') as fh:
                 json.dump(report, fh)
