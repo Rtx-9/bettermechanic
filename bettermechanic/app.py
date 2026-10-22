@@ -1,18 +1,20 @@
 """Main window: wires the views, the background workers and every action together."""
 from __future__ import annotations
 
+import datetime
 import os
 import sys
+import threading
 from collections import Counter, OrderedDict
 
-from PySide6.QtCore import QEvent, QItemSelectionModel, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QItemSelectionModel, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
                                QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import core, icons, theme
+from . import core, icons, liiga, theme
 from .avatars import AvatarStore
 from .config import key_label
 from .picker import PlayerPicker, RosterEditor
@@ -22,6 +24,10 @@ from .workers import Bus, CopyJob, Loader, Saver
 
 K = lambda name: getattr(Qt.Key, name).value          # noqa: E731
 MAC_DIGITS = {29: 0, 18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9}
+
+
+class _Fetched(QObject):
+    ready = Signal(object, object)      # (teams, error) from the liiga.fi thread
 
 FILTERS = [
     ('all', 'All photos', lambda it: True),
@@ -86,6 +92,11 @@ class MainWindow(QMainWindow):
         b.preview_ready.connect(self.on_preview)
         b.saved.connect(self.on_saved)
         QApplication.instance().installEventFilter(self)
+        self.board, self.liiga_job, self.liiga_done_cb = None, None, None
+        if liiga.add_bundled(cfg):
+            cfg.save()
+        if liiga.due(cfg):
+            QTimer.singleShot(4000, lambda: self.update_liiga(quiet=True))
         self.keys.refresh_presets()
         self.refresh_panels()
         self.update_status()
@@ -888,8 +899,52 @@ class MainWindow(QMainWindow):
             self.preset_changed(quiet=True)
 
     def open_presets(self):
-        PresetBoard(self).exec()
+        self.board = PresetBoard(self)
+        try:
+            self.board.exec()
+        finally:
+            self.board = None
         self.preset_changed(quiet=True)
+
+    def update_liiga(self, quiet=False, done=None):
+        """Refresh Liiga rosters from liiga.fi in the background. quiet: automatic daily check, existing teams only."""
+        self.liiga_done_cb = done
+        if self.liiga_job is not None:
+            return
+        job = self.liiga_job = _Fetched()
+        job.quiet = quiet
+        job.ready.connect(self._liiga_done)
+
+        def run():
+            try:
+                job.ready.emit(liiga.fetch(), None)
+            except Exception as e:      # offline, liiga.fi changed, season not started …
+                job.ready.emit(None, e)
+        threading.Thread(target=run, daemon=True, name='liiga').start()
+
+    def _liiga_done(self, teams, err):
+        job, cb = self.liiga_job, self.liiga_done_cb
+        self.liiga_job = self.liiga_done_cb = None
+        if err is not None:
+            msg = f'Couldn’t get rosters from liiga.fi ({err})'
+        else:
+            self.cfg.settings['liiga_checked'] = datetime.date.today().isoformat()
+            added, updated = liiga.apply(self.cfg, teams, add_missing=not job.quiet)
+            self.preset_changed(quiet=True)
+            if self.board is not None:
+                self.board.render()
+            parts = [f'{added} team{"s" if added != 1 else ""} added'] if added else []
+            parts += [f'{updated} roster{"s" if updated != 1 else ""} updated'] if updated else []
+            msg = 'Liiga rosters: ' + (', '.join(parts) if parts else 'already up to date')
+            if job.quiet and not parts:
+                msg = ''
+        if cb is not None:
+            try:
+                cb(msg)
+            except RuntimeError:        # the dialog was closed meanwhile
+                pass
+        elif msg and not (job.quiet and err is not None):
+            self.toast(msg, 5000)
 
     def open_meta_presets(self):
         MetaPresets(self).exec()

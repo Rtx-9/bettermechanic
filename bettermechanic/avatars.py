@@ -66,6 +66,20 @@ def _square(im):
     return im.crop((left, 0, left + h, h))
 
 
+def _cutout(im):
+    """Cut-out headshot on a transparent background (like liiga.fi's): frame the head, fill the background."""
+    alpha = im.getchannel('A')
+    w, h = im.size
+    head = alpha.crop((0, 0, w, int(h * 0.33))).point(lambda a: 255 if a > 128 else 0).getbbox()
+    if head:
+        cx, side = (head[0] + head[2]) // 2, min(w, h, max(int((head[2] - head[0]) * 2.3), int(h * 0.3)))
+        left = max(0, min(w - side, cx - side // 2))
+        top = max(0, min(h - side, head[1] - side // 12))
+        im = im.crop((left, top, left + side, top + side))
+    bg = Image.new('RGBA', im.size, (229, 229, 234, 255))
+    return Image.alpha_composite(bg, im).convert('RGB')
+
+
 def read_source(src):
     if src.lower().startswith(('http://', 'https://', 'file://')):
         req = urllib.request.Request(src, headers={'User-Agent': 'BetterMechanic/1.0'})
@@ -81,8 +95,10 @@ def read_source(src):
 
 def make_avatar_file(src, dest):
     im = Image.open(BytesIO(read_source(src)))
-    im = ImageOps.exif_transpose(im).convert('RGB')
-    im = _square(im).resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+    im = ImageOps.exif_transpose(im)
+    if im.mode in ('RGBA', 'LA', 'P') and im.convert('RGBA').getchannel('A').getextrema()[0] < 255:
+        im = _cutout(im.convert('RGBA'))
+    im = _square(im.convert('RGB')).resize((SIZE, SIZE), Image.Resampling.LANCZOS)
     tmp = dest + '.part'
     im.save(tmp, 'JPEG', quality=90)
     os.replace(tmp, dest)

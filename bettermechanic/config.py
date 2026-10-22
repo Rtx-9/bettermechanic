@@ -30,7 +30,8 @@ def tag_preset(name, names=()):
     for i, n in enumerate(list(names)[:SLOTS]):
         slots[i] = n
     return {'id': new_id(), 'name': name, 'slots': slots, 'caption_tpl': '', 'auto_caption': False, 'keywords': '',
-            'roster': []}   # roster: [{'name', 'number', 'image'}] - any length; slots are the quick keys
+            'roster': [],   # roster: [{'name', 'number', 'image'}] - any length; slots are the quick keys
+            'liiga': ''}    # liiga.fi team id when the roster comes from the league
 
 
 DEFAULT_SETTINGS = {
@@ -49,6 +50,9 @@ DEFAULT_SETTINGS = {
     'seq_digits': 4,
     'date_locale': 'en',
     'lr_tag_mark': 'none',      # what tagged photos also get for Lightroom, see metadata.MARK_CHOICES
+    'liiga_added': False,       # the bundled Liiga teams were added once
+    'liiga_auto_update': True,  # refresh Liiga rosters from liiga.fi once a day
+    'liiga_checked': '',        # date of the last successful refresh
 }
 
 DEFAULT_COPY = {
@@ -156,7 +160,7 @@ class Config:
         n = 0
         for p in data.get('tag_presets') or []:
             q = self._norm_tag(p)
-            q['id'] = new_id()
+            q['id'], q['liiga'] = new_id(), ''
             self.tag_presets.append(q)
             n += 1
         for p in data.get('meta_presets') or []:

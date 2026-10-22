@@ -31,6 +31,9 @@ presets per sport or team.
   move with the arrows or the mouse wheel, and press **Enter** to tag (**Shift+Enter** tags and keeps it open for the next
   player, **Tab** searches every preset). Typing a new name offers to add it to the roster. Paste a whole roster from a
   spreadsheet or team page (`9, Gustav Forsling, https://…/9.jpg`); players without a photo get coloured initials.
+- **Every Liiga team built in.** All 17 Liiga teams come as tag presets, each with its full roster, jersey numbers and
+  liiga.fi player photos. The app refreshes the rosters from liiga.fi once a day (Settings → *Keep Liiga rosters up to
+  date*), or on demand with **Update Liiga Rosters** in Tag Presets. Your quick keys, keywords and captions are kept.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
   Apply them with one click, or automatically during ingest.

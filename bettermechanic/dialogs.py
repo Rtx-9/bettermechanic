@@ -121,6 +121,14 @@ class PresetBoard(QDialog):
             b = QPushButton(text)
             b.clicked.connect(fn)
             foot.addWidget(b)
+        self.liiga_btn = QPushButton('Update Liiga Rosters')
+        self.liiga_btn.setToolTip('Get every Liiga team’s current players, numbers and photos from liiga.fi. '
+                                  'Adds missing teams; your quick keys, keywords and captions stay as they are.')
+        self.liiga_btn.clicked.connect(self.update_liiga)
+        foot.addWidget(self.liiga_btn)
+        self.liiga_msg = QLabel()
+        self.liiga_msg.setObjectName('dim')
+        foot.addWidget(self.liiga_msg)
         foot.addStretch()
         close = QPushButton('Done')
         close.setObjectName('primary')
@@ -147,6 +155,15 @@ class PresetBoard(QDialog):
         self.cfg.save()
         self.win.preset_changed(quiet=True)
 
+    def update_liiga(self):
+        self.liiga_btn.setEnabled(False)
+        self.liiga_msg.setText('Getting rosters from liiga.fi…')
+        self.win.update_liiga(done=self.liiga_done)
+
+    def liiga_done(self, msg):
+        self.liiga_btn.setEnabled(True)
+        self.liiga_msg.setText(msg)
+
     def activate(self, p):
         self.cfg.active_tag = p['id']
         self.changed()
@@ -161,7 +178,7 @@ class PresetBoard(QDialog):
 
     def duplicate(self, p):
         q = copy.deepcopy(p)
-        q['id'], q['name'] = new_id(), p['name'] + ' copy'
+        q['id'], q['name'], q['liiga'] = new_id(), p['name'] + ' copy', ''
         self.cfg.tag_presets.insert(self.cfg.tag_presets.index(p) + 1, q)
         self.changed()
         self.render()
@@ -658,6 +675,7 @@ class SettingsDialog(QDialog):
         chk('recursive', 'Include subfolders when opening a folder')
         chk('ingest_recursive', 'Include subfolders when ingesting (memory cards use DCIM/…)')
         chk('auto_advance', 'Move to the next photo after T / X / stars')
+        chk('liiga_auto_update', 'Keep Liiga rosters up to date (checks liiga.fi once a day)')
         f.addRow(_hdr('Metadata'))
         chk('auto_save', 'Save metadata automatically')
         self.jpeg_mode = QComboBox()
