@@ -36,12 +36,15 @@ presets per sport or team.
   the selected photos, click again to remove them; people already on the selection are highlighted. A third column
   holds the Liiga referees and linesmen, with the officials of the photo's game first (matched by the photo's date
   and the two teams). **B** shows or hides the panel, ⇄ swaps the teams, **Refs** hides the referees.
-- **Every Liiga team built in.** All 17 Liiga teams come as tag presets, each with its full roster, jersey numbers,
-  liiga.fi player photos and staff (head coach, CEO, chairman), plus a *Liiga Referees* preset with every referee and
-  linesman of the season. The app refreshes it all from liiga.fi once a day (Settings → *Keep Liiga rosters up to
-  date*), or on demand with **Update Liiga Rosters** in Tag Presets. Your quick keys, keywords and captions are kept,
-  and so are people you add yourself: give them a **Role** in the roster editor (e.g. *Assistant coach*) and they
-  show under Staff.
+- **Every Liiga team built in.** All 17 Liiga teams come as tag presets, each with its full roster, jersey numbers
+  and photos, and the team's whole staff (coaches, equipment managers, physios, doctors…) read from the club's own
+  website, plus a *Liiga Referees* preset with every referee and linesman of the season. The app refreshes it all once
+  a day (Settings → *Keep Liiga rosters up to date*), or on demand with **Update Liiga Rosters** in Tag Presets. Your
+  quick keys, keywords and captions are kept, and so are people you add yourself: give them a **Role** in the roster
+  editor (e.g. *Assistant coach*) and they show under Staff.
+- **Good photos for everyone.** Photos come from liiga.fi, then last season's liiga.fi photo, then the club's website,
+  then Wikipedia (only articles about ice hockey people, so a namesake's portrait isn't used). Placeholder
+  silhouettes and logos are skipped, and on Windows every photo is framed on the face with the built-in face detector.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
   Apply one from the menu on the metadata presets button in the toolbar, or automatically during ingest.

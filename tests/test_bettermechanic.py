@@ -226,7 +226,7 @@ class TestRoster(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             src = os.path.join(tmp, 'head.jpg')
-            Image.new('RGB', (300, 500), (200, 30, 30)).save(src)
+            Image.merge('RGB', [Image.effect_noise((300, 500), 60) for _ in range(3)]).save(src)   # photo-like
             for i, s in enumerate((src, 'file:///' + src.replace('\\', '/'))):
                 dest = os.path.join(tmp, f'a{i}.jpg')
                 avatars.make_avatar_file(s, dest)
@@ -234,6 +234,10 @@ class TestRoster(unittest.TestCase):
                     self.assertEqual(im.size, (avatars.SIZE, avatars.SIZE))
             with self.assertRaises(Exception):
                 avatars.make_avatar_file(os.path.join(tmp, 'missing.jpg'), os.path.join(tmp, 'x.jpg'))
+            flat = os.path.join(tmp, 'silhouette.png')                                     # a stand-in, not a photo
+            Image.new('RGB', (300, 500), (200, 30, 30)).save(flat)
+            with self.assertRaises(ValueError):
+                avatars.make_avatar_file(flat, os.path.join(tmp, 'y.jpg'))
             self.assertEqual(avatars.initials('Gustav Forsling'), 'GF')
             self.assertEqual(avatars.initials('Stan'), 'S')
         finally:

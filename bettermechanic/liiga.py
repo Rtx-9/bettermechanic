@@ -14,14 +14,14 @@ import re
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
+from . import clubs
 from .config import tag_preset
 
 BASE = 'https://liiga.fi/api/v2'
 TOURNAMENTS = ('runkosarja', 'playoffs')
 REFEREES = 'referees'                   # preset id of the referees "team"
-BUNDLE = 2                              # snapshot contents: 1 teams, 2 + staff, referees and games
-STAFF = {'Päävalmentaja': 'Head coach', 'Toimitusjohtaja': 'CEO', 'Urheilutoimenjohtaja': 'Sporting director',
-         'Puheenjohtaja': 'Chairman'}
+BUNDLE = 3                              # snapshot contents: 1 teams, 2 + referees and games, 3 + club staff
+STAFF = ('Päävalmentaja', 'Toimitusjohtaja', 'Urheilutoimenjohtaja', 'Puheenjohtaja')   # liiga.fi team facts
 OFFICIALS = {'PT': 'Referee', 'LT': 'Linesman'}
 
 
@@ -41,10 +41,23 @@ def _name(first, last):
     return ' '.join(x for x in (str(first or '').strip(), str(last or '').strip()) if x)
 
 
+def _rank(role):
+    """Staff order: head coach, other coaches, managers, everyone else (referees before linesmen)."""
+    r = role.lower()
+    if r == 'referee' or re.search('pää|vastuu|head', r) and 'valmentaja' in r or r == 'head coach':
+        return 0
+    if 'valmentaja' in r or 'coach' in r or r == 'linesman':
+        return 1
+    if re.search('johtaja|manager|päällikkö', r):
+        return 2
+    return 3
+
+
 def _order(r):
     role = r.get('role', '')
-    return (role != '', role != 'Referee', not r['number'], int(r['number']) if r['number'].isdigit() else 0,
-            r['name'])
+    if role:
+        return (1, _rank(role), 0, r['name'])
+    return (0, not r['number'], int(r['number']) if r['number'].isdigit() else 0, r['name'])
 
 
 def teams_from(players):
@@ -58,7 +71,8 @@ def teams_from(players):
             continue
         seen.add(p.get('id'))
         t = teams.setdefault(p['teamId'], {'id': p['teamId'], 'name': str(p.get('teamName') or p['teamId']), 'roster': []})
-        t['roster'].append({'name': name, 'number': str(p.get('jersey') or ''), 'image': p.get('pictureUrl') or ''})
+        t['roster'].append({'name': name, 'number': str(p.get('jersey') or ''), 'image': p.get('pictureUrl') or '',
+                            'pid': p.get('id')})
     for t in teams.values():
         t['roster'].sort(key=_order)
     return sorted(teams.values(), key=lambda t: t['name'])
@@ -71,8 +85,8 @@ def staff_from(team_info):
         rows = re.findall(r'<tr>\s*<td>(.*?)</td>\s*<td>(.*?)</td>\s*</tr>', t.get('general_info') or '', re.S)
         people = []
         for label, value in rows:
-            role = STAFF.get(html.unescape(re.sub('<[^>]+>', '', label)).strip())
-            if not role:
+            role = html.unescape(re.sub('<[^>]+>', '', label)).strip()
+            if role not in STAFF:
                 continue
             for name in re.split(r'<br\s*/?>|,| ja ', value):
                 name = html.unescape(re.sub('<[^>]+>', '', name)).strip()
@@ -117,8 +131,17 @@ def fetch(season=None, games=None, timeout=20):
         staff = staff_from(_get('/teams/info', timeout))
     except Exception:           # staff is a nice-to-have
         staff = {}
+    slugs = {t['id']: t['id'].split(':', 1)[-1] for t in teams}
+    with ThreadPoolExecutor(max_workers=6) as pool:     # the clubs' own sites: full staff, more photos
+        club = dict(zip(slugs.values(), pool.map(lambda s: _try(lambda: clubs.club(s, timeout)) or ([], {}),
+                                                  slugs.values())))
+    earlier = _earlier_photos(season, timeout)
     for t in teams:
-        t['roster'] += staff.get(t['id'], [])
+        people, photos = club.get(slugs[t['id']], ([], {}))
+        t['roster'] += merge_staff(staff.get(t['id'], []), people)
+        for r in t['roster']:
+            if not r['image']:
+                r['image'] = earlier.get(r.get('pid')) or photos.get(r['name'], '')
     known = {str(k): v for k, v in (games or {}).items() if str(k).startswith(f'{season}:')}
     todo = []
     for tour in TOURNAMENTS:
@@ -139,7 +162,46 @@ def fetch(season=None, games=None, timeout=20):
         refs = list(officials.values())
         for r, url in zip(refs, pool.map(lambda r: _photo(r['image'], season, timeout), refs)):
             r['image'] = url
+    people = [r for t in teams for r in t['roster']] + list(officials.values())
+    wiki = _try(lambda: clubs.wikipedia_photos([r['name'] for r in people if not r['image']], timeout)) or {}
+    for r in people:
+        r['image'] = r['image'] or wiki.get(r['name'], '')
+        r.pop('pid', None)
+    for t in teams:
+        t['roster'].sort(key=_order)
     return {'season': season, 'teams': teams, 'officials': officials, 'games': known}
+
+
+def merge_staff(league, club):
+    """The club's own staff list; liiga.fi's (head coach, CEO, chairman) only when the club lists nobody.
+
+    liiga.fi's team facts lag behind (former coaches stay listed), so they only add a role to someone the club
+    lists without one.
+    """
+    out = {p['name']: {'name': p['name'], 'number': '', 'image': p.get('image', ''), 'role': p.get('role', ''),
+                       'generic': p.get('generic', False)} for p in club}
+    for p in league:
+        q = out.get(p['name'])
+        if q is None:
+            if not club:
+                out[p['name']] = dict(p)
+        elif q['generic'] or not q['role']:
+            q['role'] = p['role']
+    for q in out.values():
+        q.pop('generic', None)
+        q['role'] = q['role'] or 'Staff'
+    return list(out.values())
+
+
+def _earlier_photos(season, timeout=20):
+    """{player id: photo} from the last seasons, for players whose photo isn't up for this season yet."""
+    out = {}
+    for year in (season - 2, season - 1):
+        rows = _try(lambda: _get(f'/players/info?tournament=runkosarja&fromSeason={year}&toSeason={year}', timeout))
+        for p in rows or []:
+            if isinstance(p, dict) and p.get('pictureUrl'):
+                out[p.get('id')] = p['pictureUrl']
+    return out
 
 
 def _photo(url, season, timeout=20):
@@ -212,12 +274,13 @@ def add_bundled(cfg):
     data = snapshot()
     if have == 0:
         return apply(cfg, data)[0]
-    for p in cfg.tag_presets:                       # rosters from 0.6/0.7: everyone came from liiga.fi
-        if p.get('liiga'):
-            for r in p.get('roster') or []:
-                r['liiga'] = True
-    s['liiga_checked'] = ''                          # staff come with the next refresh
-    return apply(cfg, {'teams': [], 'officials': data['officials'], 'games': data['games']})[0]
+    if have == 1:                                    # rosters from 0.6/0.7: everyone came from liiga.fi
+        for p in cfg.tag_presets:
+            if p.get('liiga'):
+                for r in p.get('roster') or []:
+                    r['liiga'] = True
+    s['liiga_checked'] = ''                          # and refresh soon
+    return apply(cfg, data, add_missing={REFEREES})[0]
 
 
 def due(cfg, day=None):
@@ -229,6 +292,7 @@ def due(cfg, day=None):
 def apply(cfg, data, add_missing=True):
     """Put liiga.fi data into the matching presets (or new ones). Returns (added, updated) preset counts.
 
+    add_missing: add presets for teams you don't have (True), none (False) or only these team ids (a set).
     Quick keys, keywords, captions and people you added to a roster yourself are kept. The referees list only
     grows: officials from earlier games stay.
     """
@@ -247,7 +311,7 @@ def apply(cfg, data, add_missing=True):
             continue
         p = mine.get(t['id'])
         if p is None:
-            if not add_missing:
+            if not add_missing or add_missing is not True and t['id'] not in add_missing:
                 continue
             p = tag_preset(t['name'])
             p['liiga'] = t['id']

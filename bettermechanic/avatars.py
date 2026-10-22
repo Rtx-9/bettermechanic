@@ -19,6 +19,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap
 from . import theme
 
 MAX_BYTES = 15 * 1024 * 1024
+AGENT = 'BetterMechanic/1.0 (https://github.com/Rtx-9/bettermechanic)'   # Wikimedia asks for a contact link
 SIZE = 256
 PALETTE = ['blue', 'orange', 'green', 'purple', 'red', 'yellow']
 
@@ -57,8 +58,61 @@ def draw_avatar(p: QPainter, r: QRectF, name, pix: QPixmap | None):
     p.restore()
 
 
+def find_face(im):
+    """(x, y, w, h) of the largest face, from Windows' built-in face detector; None when there's none or no
+    detector (other systems)."""
+    try:
+        import asyncio
+
+        from winrt.windows.graphics.imaging import BitmapPixelFormat, SoftwareBitmap
+        from winrt.windows.media.faceanalysis import FaceDetector
+        from winrt.windows.storage.streams import Buffer
+    except Exception:
+        return None
+    scale = min(1.0, 1000 / max(im.size))
+    gray = im.convert('L').resize((max(1, round(im.width * scale)), max(1, round(im.height * scale))))
+    data = gray.tobytes()
+
+    async def detect():
+        buf = Buffer(len(data))
+        buf.length = len(data)
+        view = memoryview(buf)
+        view[:] = data
+        view.release()
+        bitmap = SoftwareBitmap.create_copy_from_buffer(buf, BitmapPixelFormat.GRAY8, gray.width, gray.height)
+        detector = await FaceDetector.create_async()       # keep it referenced while it works
+        found = await detector.detect_faces_async(bitmap)
+        return [(f.face_box.x, f.face_box.y, f.face_box.width, f.face_box.height) for f in found]
+    try:
+        with _face_lock:
+            faces = asyncio.run(detect())
+    except Exception:
+        return None
+    if not faces:
+        return None
+    return tuple(v / scale for v in max(faces, key=lambda b: b[2] * b[3]))
+
+
+_face_lock = threading.Lock()
+
+
+def face_detection_available():
+    try:
+        from winrt.windows.media.faceanalysis import FaceDetector
+        return bool(FaceDetector.is_supported)
+    except Exception:
+        return False
+
+
 def _square(im):
     w, h = im.size
+    face = find_face(im)
+    if face:                                     # head and shoulders around the face
+        fx, fy, fw, fh = face
+        side = int(min(w, h, max(fw * 3.0, fh * 2.6)))
+        left = max(0, min(w - side, int(fx + fw / 2 - side / 2)))
+        top = max(0, min(h - side, int(fy + fh / 2 - side * 0.42)))
+        return im.crop((left, top, left + side, top + side))
     if h > w:                       # portrait headshot: keep the top, where the face is
         top = int((h - w) * 0.15)
         return im.crop((0, top, w, top + w))
@@ -82,7 +136,7 @@ def _cutout(im):
 
 def read_source(src):
     if src.lower().startswith(('http://', 'https://', 'file://')):
-        req = urllib.request.Request(src, headers={'User-Agent': 'BetterMechanic/1.0'})
+        req = urllib.request.Request(src, headers={'User-Agent': AGENT})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = r.read(MAX_BYTES + 1)
     else:
@@ -93,11 +147,18 @@ def read_source(src):
     return data
 
 
+def is_placeholder(im):
+    """A silhouette, logo or blank card rather than a photo: real photos have far more distinct colours."""
+    return len(im.convert('RGB').resize((64, 64)).getcolors(5000) or []) < 700
+
+
 def make_avatar_file(src, dest):
     im = Image.open(BytesIO(read_source(src)))
     im = ImageOps.exif_transpose(im)
     if im.mode in ('RGBA', 'LA', 'P') and im.convert('RGBA').getchannel('A').getextrema()[0] < 255:
         im = _cutout(im.convert('RGBA'))
+    if is_placeholder(im):
+        raise ValueError('this is a placeholder picture, not a photo')
     im = _square(im.convert('RGB')).resize((SIZE, SIZE), Image.Resampling.LANCZOS)
     tmp = dest + '.part'
     im.save(tmp, 'JPEG', quality=90)

@@ -5,6 +5,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -56,7 +57,22 @@ class TestLiiga(unittest.TestCase):
                                                   '<tr><td>Kapteenisto</td><td>C Someone Else</td></tr>'
                                                   '</tbody></table>'}}}
         self.assertEqual([(s['name'], s['role']) for s in liiga.staff_from(info)['1:x']],
-                         [('Juha Junno', 'Chairman'), ('Petri Karjalainen', 'Head coach')])
+                         [('Juha Junno', 'Puheenjohtaja'), ('Petri Karjalainen', 'Päävalmentaja')])
+
+    def test_club_staff_wins_over_stale_league_facts(self):
+        league = [{'name': 'Old Coach', 'number': '', 'image': '', 'role': 'Päävalmentaja'},
+                  {'name': 'Same Person', 'number': '', 'image': '', 'role': 'Päävalmentaja'}]
+        club = [{'name': 'Same Person', 'role': 'Valmentaja', 'image': 'p.jpg', 'generic': True},
+                {'name': 'Kit Man', 'role': 'Huoltaja', 'image': ''}]
+        merged = {p['name']: p for p in liiga.merge_staff(league, club)}
+        self.assertNotIn('Old Coach', merged)                          # liiga.fi still lists a former coach
+        self.assertEqual(merged['Same Person']['role'], 'Päävalmentaja')   # but knows who's the head coach
+        self.assertEqual(merged['Kit Man']['role'], 'Huoltaja')
+        self.assertEqual(len(liiga.merge_staff(league, [])), 2)         # a club with no staff page
+        order = sorted([{'name': 'B', 'number': '', 'role': 'Huoltaja'}, {'name': 'A', 'number': '', 'role': 'Valmentaja'},
+                        {'name': 'C', 'number': '', 'role': 'Päävalmentaja'}, {'name': 'D', 'number': '9', 'role': ''}],
+                       key=liiga._order)
+        self.assertEqual([r['name'] for r in order], ['D', 'C', 'A', 'B'])
 
     def test_game_and_its_referees(self):
         gid, rec, refs = liiga.game_from(detail(7, '2026-10-21T15:30:00Z', '1:a', '1:b',
@@ -80,7 +96,9 @@ class TestLiiga(unittest.TestCase):
         self.assertGreater(len(data['officials']), 20)
         self.assertGreater(len(data['games']), 50)
         karpat = next(t for t in data['teams'] if t['name'] == 'Kärpät')
-        self.assertIn('Head coach', [r.get('role') for r in karpat['roster']])
+        roles = [r.get('role') for r in karpat['roster']]
+        self.assertIn('Päävalmentaja', roles)
+        self.assertGreater(sum(1 for r in roles if r), 8)              # the club's whole staff, not just three
 
     def test_added_once_with_referees_and_games(self):
         before = len(self.cfg.tag_presets)
@@ -111,6 +129,17 @@ class TestLiiga(unittest.TestCase):
         self.assertTrue(all(r['liiga'] for r in p['roster']))       # existing people marked as from liiga.fi
         self.assertEqual(self.cfg.settings['liiga_checked'], '')     # refresh soon to get the staff
         self.assertIsNotNone(self.preset('Liiga Referees'))
+
+    def test_upgrade_from_08_brings_club_staff_but_not_deleted_teams(self):
+        liiga.add_bundled(self.cfg)
+        for p in self.cfg.tag_presets:                                # as 0.8 had them: three staff at most
+            p['roster'] = [r for r in p['roster'] if not r['role'] or r['role'] == 'Päävalmentaja']
+        self.cfg.tag_presets = [p for p in self.cfg.tag_presets if p['name'] != 'HPK']
+        self.cfg.settings['liiga_bundle'] = 2
+        n = len(self.cfg.tag_presets)
+        self.assertEqual(liiga.add_bundled(self.cfg), 0)
+        self.assertEqual(len(self.cfg.tag_presets), n)                # HPK stays deleted
+        self.assertGreater(sum(1 for r in self.preset('Kärpät')['roster'] if r['role']), 8)
 
     def test_update_keeps_your_own_settings_and_people(self):
         liiga.add_bundled(self.cfg)
@@ -151,10 +180,23 @@ class TestLiiga(unittest.TestCase):
         self.cfg.settings['liiga_auto_update'] = False
         self.assertFalse(liiga.due(self.cfg, today + datetime.timedelta(days=1)))
 
+    def test_crop_centres_on_the_face(self):
+        wide = Image.new('RGB', (1200, 800))
+        with mock.patch.object(avatars, 'find_face', return_value=(900, 100, 80, 100)):
+            box = avatars._square(wide)
+        self.assertEqual(box.size[0], box.size[1])
+        self.assertEqual(box.size[0], 260)                          # head and shoulders, not the whole picture
+        with mock.patch.object(avatars, 'find_face', return_value=None):
+            self.assertEqual(avatars._square(wide).size, (800, 800))   # no face found: centre crop as before
+
     def test_cutout_avatar(self):
         im = Image.new('RGBA', (600, 600), (0, 0, 0, 0))
-        im.paste((200, 150, 120, 255), (250, 40, 350, 180))        # head
-        im.paste((20, 40, 200, 255), (80, 220, 520, 600))          # jersey
+        def noise(add):                                            # photo-like detail, its own in every channel
+            return Image.effect_noise((600, 600), 40).point(lambda v: min(255, max(0, v - 128 + add)))
+        head = Image.merge('RGB', [noise(210), noise(160), noise(130)])
+        shirt = Image.merge('RGB', [noise(40), noise(60), noise(190)])
+        im.paste(head.crop((250, 40, 350, 180)), (250, 40))
+        im.paste(shirt.crop((80, 220, 520, 600)), (80, 220))
         src, dest = os.path.join(self.tmp, 'p.png'), os.path.join(self.tmp, 'a.jpg')
         im.save(src)
         avatars.make_avatar_file(src, dest)
