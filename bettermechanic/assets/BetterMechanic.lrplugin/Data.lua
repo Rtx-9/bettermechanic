@@ -2,9 +2,9 @@
 
 players.txt, one tab-separated record per line:
   d  <first team's preset id>  <second team's preset id>     (the teams chosen in the app)
-  t  <preset id>  <team name>  <liiga id>  <keywords added when tagging>
+  t  <preset id>  <team name>  <liiga id>  <keywords added when tagging>  <genitive: "Kärppien">
   p  <name>  <number>  <role, empty for players>  <picture file in img/>
-  g  <date YYYY-MM-DD>  <home liiga id>  <away liiga id>  <referee|referee|...>
+  g  <date YYYY-MM-DD>  <home liiga id>  <away liiga id>  <referee|referee|...>  <arena>  <city>  <"in city": "Oulussa">
 ]]
 
 local LrFileUtils = import 'LrFileUtils'
@@ -43,8 +43,8 @@ end
 
 function Data.parse(text, folder)
 	local img = LrPathUtils.child(folder, 'img')
-	local data = { teams = {}, byId = {}, games = {}, blank = LrPathUtils.child(img, 'blank.png'), headings = {},
-		defaults = { '', '' } }
+	local data = { teams = {}, byId = {}, byLiiga = {}, games = {}, blank = LrPathUtils.child(img, 'blank.png'),
+		headings = {}, defaults = { '', '' } }
 	for _, h in ipairs({ 'staff', 'game', 'referees', 'linesmen' }) do
 		data.headings[h] = LrPathUtils.child(img, 'h_' .. h .. '.png')
 	end
@@ -54,9 +54,11 @@ function Data.parse(text, folder)
 		if f[1] == 'd' then
 			data.defaults = { f[2] or '', f[3] or '' }
 		elseif f[1] == 't' then
-			team = { id = f[2], name = f[3] or '', liiga = f[4] or '', keywords = f[5] or '', people = {} }
+			team = { id = f[2], name = f[3] or '', liiga = f[4] or '', keywords = f[5] or '', genitive = f[6] or '',
+				people = {} }
 			data.teams[#data.teams + 1] = team
 			data.byId[team.id] = team
+			if team.liiga ~= '' then data.byLiiga[team.liiga] = team end
 			if team.liiga == 'referees' then
 				data.referees = team
 			end
@@ -71,7 +73,8 @@ function Data.parse(text, folder)
 			for _, r in ipairs(split(f[5] or '', '|')) do
 				if r ~= '' then refs[#refs + 1] = r end
 			end
-			data.games[#data.games + 1] = { date = f[2], teams = { f[3] or '', f[4] or '' }, refs = refs }
+			data.games[#data.games + 1] = { date = f[2], teams = { f[3] or '', f[4] or '' }, refs = refs,
+				rink = f[6] or '', city = f[7] or '', cityIn = f[8] or '' }
 		end
 	end
 	return data

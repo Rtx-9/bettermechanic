@@ -22,6 +22,7 @@ def row(pid, team, first, last, jersey, removed=False):
 
 def detail(gid, start, home, away, refs):
     return {'game': {'id': gid, 'start': start, 'homeTeam': {'teamId': home}, 'awayTeam': {'teamId': away},
+                     'iceRink': {'name': 'Oulun jäähalli', 'city': 'OULU'},
                      'referees': [{'firstName': f, 'lastName': l, 'roleAbbrv': a, 'pictureUrl': None}
                                   for f, l, a in refs]}}
 
@@ -78,7 +79,8 @@ class TestLiiga(unittest.TestCase):
         gid, rec, refs = liiga.game_from(detail(7, '2026-10-21T15:30:00Z', '1:a', '1:b',
                                                 [('Ref', 'One', 'PT'), ('Line', 'Two', 'LT')]))
         self.assertEqual(gid, 7)
-        self.assertEqual(rec, {'date': '2026-10-21', 'teams': ['1:a', '1:b'], 'refs': ['Ref One', 'Line Two']})
+        self.assertEqual(rec, {'date': '2026-10-21', 'teams': ['1:a', '1:b'], 'refs': ['Ref One', 'Line Two'],
+                               'rink': 'Oulun jäähalli', 'city': 'Oulu'})
         self.assertEqual(refs['Line Two']['role'], 'Linesman')
         late = liiga.game_from(detail(8, '2026-10-21T22:30:00Z', '1:a', '1:b', []))[1]
         self.assertEqual(late['date'], '2026-10-22')                    # Finnish local date, not UTC

@@ -96,6 +96,19 @@ Lightroom: their name goes in the keywords and in *Person Shown*, and the team's
 take them off. People already on the selection get a ✓. BetterMechanic keeps the teams and photos up to date for the
 window, and updates the plugin itself when you install a new version.
 
+**News captions.** Before you start editing, set a caption with `{people}` in it, or press **From Game** with a photo
+from the game selected: it writes the caption the way newsrooms want it and fills in the game's details. Every photo
+you tag then gets the caption with the people on it, in Finnish:
+
+> Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) Liigan ottelussa SaiPa–Kärpät Lappeenrannassa
+> 20. lokakuuta 2026.
+
+Staff are written with their role (*Kärppien päävalmentaja Petri Karjalainen*), referees as *päätuomari* and
+*linjatuomari*. Taking someone off takes them out of the caption too. A caption you wrote yourself is kept: only the
+names in it change. **Headline** (*SaiPa–Kärpät*), **City**, **Country** and **Sublocation** (the arena, from
+liiga.fi) are filled in where a photo has none. When exporting, choose *Metadata: All Metadata* (or *All Except Camera &
+Camera Raw Info*) and leave *Remove Person Info* off, so the names and caption go with the photo.
+
 ## Download (Windows)
 
 Grab the latest release from the [Releases page](https://github.com/Rtx-9/bettermechanic/releases/latest):

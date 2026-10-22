@@ -44,25 +44,46 @@ function Tagging.day(photo)
 	return LrDate.timeToUserFormat(t, '%Y-%m-%d')
 end
 
-function Tagging.setPersonShown(photo, name, add)
-	return pcall(function()
-		local list, seen = {}, false
-		for item in (photo:getFormattedMetadata('personShown') or ''):gmatch('[^,]+') do
-			item = trim(item)
-			if item == name then
-				seen = true
-				if add then list[#list + 1] = item end
-			elseif item ~= '' then
-				list[#list + 1] = item
-			end
+-- the people on a photo in the order they were tagged: IPTC Person Shown, else its keywords that are people
+function Tagging.people(photo, index)
+	local list = {}
+	local ok, shown = pcall(photo.getFormattedMetadata, photo, 'personShown')
+	for item in ((ok and shown) or ''):gmatch('[^,]+') do
+		item = trim(item)
+		if item ~= '' then list[#list + 1] = item end
+	end
+	if #list == 0 and index then
+		for name in pairs(Tagging.names(photo)) do
+			if index[name] then list[#list + 1] = name end
 		end
-		if add and not seen then list[#list + 1] = name end
-		photo:setRawMetadata('personShown', table.concat(list, ', '))
-	end)
+		table.sort(list)
+	end
+	return list
 end
 
--- add `entry` to the photos, or take them off if every photo already has them; returns 'added' or 'removed'
-function Tagging.toggle(catalog, photos, entry)
+local function without(list, name)
+	local out = {}
+	for _, item in ipairs(list) do
+		if item ~= name then out[#out + 1] = item end
+	end
+	return out
+end
+
+local function field(photo, key)
+	local ok, value = pcall(photo.getFormattedMetadata, photo, key)
+	return ok and value or ''
+end
+
+--[[ Add `entry` to the photos, or take them off if every photo already has them. Returns 'added' or 'removed'
+and how many captions were left alone because they're your own wording.
+
+opts (all optional):
+  template   caption with {people}: each photo's caption follows the people on it (see Caption.update)
+  index      name -> entry, to write the people in the caption
+  info       { headline, city, country, isoCountryCode, location }: filled in where the photo has none ]]
+function Tagging.toggle(catalog, photos, entry, opts)
+	opts = opts or {}
+	local Caption = require 'Caption'
 	local all = #photos > 0
 	for _, photo in ipairs(photos) do
 		if not Tagging.names(photo)[entry.name] then
@@ -70,6 +91,7 @@ function Tagging.toggle(catalog, photos, entry)
 			break
 		end
 	end
+	local kept = 0
 	catalog:withWriteAccessDo('Tag ' .. entry.name, function()
 		local kw = catalog:createKeyword(entry.name, {}, true, nil, true)
 		local extras = {}
@@ -80,16 +102,36 @@ function Tagging.toggle(catalog, photos, entry)
 			end
 		end
 		for _, photo in ipairs(photos) do
+			local before = Tagging.people(photo, opts.index)
+			local after = without(before, entry.name)
 			if all then
 				photo:removeKeyword(kw)
 			else
 				photo:addKeyword(kw)
 				for _, e in ipairs(extras) do photo:addKeyword(e) end
+				after[#after + 1] = entry.name
 			end
-			Tagging.setPersonShown(photo, entry.name, not all)
+			pcall(photo.setRawMetadata, photo, 'personShown', table.concat(after, ', '))
+			if opts.template and opts.template ~= '' then
+				local index = opts.index or {}
+				local caption = Caption.update(field(photo, 'caption'), opts.template, Caption.people(before, index),
+					Caption.people(after, index))
+				if caption then
+					photo:setRawMetadata('caption', caption)
+				else
+					kept = kept + 1
+				end
+			end
+			if opts.info and not all then
+				for key, value in pairs(opts.info) do
+					if value ~= '' and field(photo, key) == '' then
+						pcall(photo.setRawMetadata, photo, key, value)
+					end
+				end
+			end
 		end
 	end, { timeout = 10 })
-	return all and 'removed' or 'added'
+	return all and 'removed' or 'added', kept
 end
 
 return Tagging

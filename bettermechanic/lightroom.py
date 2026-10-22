@@ -17,6 +17,17 @@ from PIL import Image, ImageDraw, ImageFont
 from . import avatars, liiga
 from .config import players
 
+# Finnish forms for news captions: "Kärppien Henrik Törnqvist (11) ... Oulussa"
+GENITIVE = {'hifk': 'HIFK:n', 'hpk': 'HPK:n', 'ilves': 'Ilveksen', 'jyp': 'JYP:n', 'jokerit': 'Jokereiden',
+            'jukurit': 'Jukureiden', 'k-espoo': 'K-Espoon', 'kalpa': 'KalPan', 'kookoo': 'KooKoon',
+            'kärpät': 'Kärppien', 'lukko': 'Lukon', 'pelicans': 'Pelicansin', 'saipa': 'SaiPan', 'sport': 'Sportin',
+            'tps': 'TPS:n', 'tappara': 'Tapparan', 'ässät': 'Ässien'}
+LOCATIVE = {'Espoo': 'Espoossa', 'Helsinki': 'Helsingissä', 'Hämeenlinna': 'Hämeenlinnassa', 'Jyväskylä': 'Jyväskylässä',
+            'Kouvola': 'Kouvolassa', 'Kuopio': 'Kuopiossa', 'Lahti': 'Lahdessa', 'Lappeenranta': 'Lappeenrannassa',
+            'Mikkeli': 'Mikkelissä', 'Oulu': 'Oulussa', 'Pori': 'Porissa', 'Rauma': 'Raumalla', 'Tampere': 'Tampereella',
+            'Turku': 'Turussa', 'Vaasa': 'Vaasassa', 'Vantaa': 'Vantaalla', 'Seinäjoki': 'Seinäjoella',
+            'Joensuu': 'Joensuussa', 'Kotka': 'Kotkassa', 'Savonlinna': 'Savonlinnassa'}
+
 SIZE = 72                       # avatar size in the Lightroom window (pixels)
 RENDER = 2                      # render version: bump to redraw every picture
 PLUGIN = 'BetterMechanic.lrplugin'
@@ -149,7 +160,9 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
         if not os.path.exists(os.path.join(img_dir, fname)):
             render_heading(text, os.path.join(img_dir, fname))
     for p in cfg.tag_presets:
-        lines.append('\t'.join(['t', p['id'], _clean(p['name']), p.get('liiga', ''), _clean(p.get('keywords', ''))]))
+        slug = (p.get('liiga') or '').split(':', 1)[-1]
+        lines.append('\t'.join(['t', p['id'], _clean(p['name']), p.get('liiga', ''), _clean(p.get('keywords', '')),
+                                GENITIVE.get(slug, '')]))
         for e in players(p):
             cached = avatars.cache_path(avatar_dir, e['image']) if e.get('image') else ''
             has = bool(cached) and os.path.exists(cached)    # in the name: redrawn once the photo is there
@@ -160,8 +173,10 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
             if not os.path.exists(os.path.join(img_dir, fname)):
                 jobs.append((e, cached, os.path.join(img_dir, fname)))
     for g in liiga.load_games(cfg).values():
+        city = _clean(g.get('city'))
         lines.append('\t'.join(['g', g.get('date', ''), *[(t or '') for t in (g.get('teams') or ['', ''])[:2]],
-                                '|'.join(_clean(r) for r in g.get('refs') or [])]))
+                                '|'.join(_clean(r) for r in g.get('refs') or []), _clean(g.get('rink')), city,
+                                LOCATIVE.get(city, '')]))
 
     def draw(job):
         e, cached, dest = job

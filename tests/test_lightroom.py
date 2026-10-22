@@ -67,8 +67,8 @@ function import(name) return assert(modules[name], 'no stub for ' .. name) end
 _PLUGIN = {}
 
 -- a catalog with photos whose keywords are names
-function makePhoto(id, names, day)
-  local p = { localIdentifier = id, kws = {}, personShown = '', day = day }
+function makePhoto(id, names, day, meta)
+  local p = { localIdentifier = id, kws = {}, meta = meta or {}, day = day }
   for _, n in ipairs(names) do p.kws[n] = true end
   function p:getRawMetadata(key)
     if key == 'keywords' then
@@ -79,8 +79,8 @@ function makePhoto(id, names, day)
   end
   function p:addKeyword(kw) self.kws[kw.name] = true end
   function p:removeKeyword(kw) self.kws[kw.name] = nil end
-  function p:getFormattedMetadata(key) return self.personShown end
-  function p:setRawMetadata(key, value) assert(key == 'personShown'); self.personShown = value end
+  function p:getFormattedMetadata(key) return self.meta[key] or '' end
+  function p:setRawMetadata(key, value) self.meta[key] = value end
   return p
 end
 function makeCatalog(photos)
@@ -99,7 +99,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.cfg = Config(os.path.join(self.tmp, 'config.json'))
         home, away = tag_preset('Home'), tag_preset('Away')
-        home['liiga'], away['liiga'], home['keywords'] = '1:home', '1:away', 'Home, Liiga'
+        home['liiga'], away['liiga'], home['keywords'] = '1:kärpät', '1:saipa', 'Home, Liiga'
         home['roster'] = [{'name': 'Aa Bee', 'number': '29', 'image': ''},
                           {'name': 'Cc Coach', 'number': '', 'image': '', 'role': 'Päävalmentaja'}]
         away['roster'] = [{'name': 'Dd Away', 'number': '7', 'image': ''}]
@@ -108,8 +108,9 @@ class Base(unittest.TestCase):
         refs['roster'] = [{'name': f'Ref {i}', 'number': '', 'image': '', 'role': 'Referee' if i < 3 else 'Linesman'}
                           for i in range(6)]
         self.cfg.tag_presets = [home, away, refs]
-        liiga.save_games(self.cfg, {'2027:1': {'date': '2026-10-21', 'teams': ['1:away', '1:home'],
-                                               'refs': ['Ref 4', 'Ref 1']}})
+        liiga.save_games(self.cfg, {'2027:1': {'date': '2026-10-21', 'teams': ['1:saipa', '1:kärpät'],
+                                               'refs': ['Ref 4', 'Ref 1'], 'rink': 'Lappeenrannan jäähalli I',
+                                               'city': 'Lappeenranta'}})
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -124,10 +125,12 @@ class TestExport(Base):
             lines = fh.read().splitlines()
         self.assertEqual(lines[0], 'v\t1')
         self.assertEqual(lines[1], 'd\t\t')                                    # no teams chosen in the app yet
-        self.assertIn('\t'.join(['t', self.cfg.tag_presets[0]['id'], 'Home', '1:home', 'Home, Liiga']), lines)
+        self.assertIn('\t'.join(['t', self.cfg.tag_presets[0]['id'], 'Home', '1:kärpät', 'Home, Liiga', 'Kärppien']),
+                      lines)
         self.assertTrue(os.path.exists(os.path.join(out, 'img', 'h_staff.png')))
         self.assertTrue(any(ln.startswith('p\tCc Coach\t\tPäävalmentaja\t') for ln in lines))
-        self.assertIn('g\t2026-10-21\t1:away\t1:home\tRef 4|Ref 1', lines)
+        self.assertIn('g\t2026-10-21\t1:saipa\t1:kärpät\tRef 4|Ref 1\tLappeenrannan jäähalli I\tLappeenranta\t'
+                      'Lappeenrannassa', lines)
         pic = next(ln for ln in lines if ln.startswith('p\tAa Bee')).split('\t')[4]
         with Image.open(os.path.join(out, 'img', pic)) as im:
             self.assertEqual(im.size, (lightroom.SIZE, lightroom.SIZE))
@@ -204,14 +207,14 @@ class TestPluginLua(Base):
     def test_model(self):
         model = self.lua.eval('require("Model")')
         d = self.data
-        self.assertEqual(model.gameFor(d, '2026-10-21', '1:home', '1:away').date, '2026-10-21')
-        self.assertEqual(model.gameFor(d, '2026-10-21', '1:home', '').date, '2026-10-21')      # one team is enough
-        self.assertEqual(model.gameFor(d, '2026-10-21', '1:home', None).date, '2026-10-21')
-        self.assertIsNone(model.gameFor(d, '2026-10-22', '1:home', '1:away'))
-        self.assertIsNone(model.gameFor(d, None, '1:home', '1:away'))
+        self.assertEqual(model.gameFor(d, '2026-10-21', '1:kärpät', '1:saipa').date, '2026-10-21')
+        self.assertEqual(model.gameFor(d, '2026-10-21', '1:kärpät', '').date, '2026-10-21')      # one team is enough
+        self.assertEqual(model.gameFor(d, '2026-10-21', '1:kärpät', None).date, '2026-10-21')
+        self.assertIsNone(model.gameFor(d, '2026-10-22', '1:kärpät', '1:saipa'))
+        self.assertIsNone(model.gameFor(d, None, '1:kärpät', '1:saipa'))
         props, shown = self.lua.table(), self.lua.table()
         counts = self.lua.table_from({'Aa Bee': 2, 'Dd Away': 1})
-        game = model.gameFor(d, '2026-10-21', '1:home', '1:away')
+        game = model.gameFor(d, '2026-10-21', '1:kärpät', '1:saipa')
         model.fillAll(props, shown, d, d.teams[1], d.teams[2], counts, 2, game)
         # home: player, Staff heading, coach, then hidden tiles
         self.assertEqual(props['a_1_title'], '✓ #29 Bee')
@@ -239,18 +242,72 @@ class TestPluginLua(Base):
         catalog = lua.eval('makeCatalog')(photos)
         tagging = lua.eval('require("Tagging")')
         entry = self.data.teams[1].people[1]
-        self.assertEqual(tagging.toggle(catalog, photos, entry), 'added')
+        self.assertEqual(tagging.toggle(catalog, photos, entry), ('added', 0))
         self.assertTrue(photos[1].kws['Aa Bee'] and photos[1].kws['Home'] and photos[1].kws['Liiga'])
-        self.assertEqual(photos[1].personShown, 'Aa Bee')
-        self.assertEqual(tagging.toggle(catalog, photos, entry), 'removed')      # everyone had it: off again
+        self.assertEqual(photos[1].meta.personShown, 'Aa Bee')
+        self.assertEqual(tagging.toggle(catalog, photos, entry)[0], 'removed')   # everyone had it: off again
         self.assertIsNone(photos[1].kws['Aa Bee'])
         self.assertTrue(photos[1].kws['Home'])                                     # team keywords stay, like the app
-        self.assertEqual(photos[2].personShown, '')
+        self.assertEqual(photos[2].meta.personShown, '')
+        self.assertIsNone(photos[1].meta.caption)                                  # no caption set: none written
         self.assertEqual(tagging.day(photos[1]), '2026-10-21')
         counts, n = tagging.counts(photos, 300)
         self.assertEqual(n, 2)
         empty = lua.eval('makeCatalog({})')
         self.assertEqual(len(list(tagging.selection(empty).values())), 0)       # nothing selected: nothing tagged
+
+    def test_caption_text(self):
+        cap = self.lua.eval('require("Caption")')
+        d = self.data
+        index = cap.index(d, d.teams[1], d.teams[2])
+        names = self.lua.table_from
+        self.assertEqual(cap.longDate('2026-10-20'), '20. lokakuuta 2026')
+        self.assertEqual(cap.people(names(['Aa Bee']), index), 'Kärppien Aa Bee (29)')
+        self.assertEqual(cap.people(names(['Aa Bee', 'Dd Away']), index), 'Kärppien Aa Bee (29) ja SaiPan Dd Away (7)')
+        self.assertEqual(cap.people(names(['Aa Bee', 'Cc Coach', 'Dd Away', 'Ref 4']), index),
+                         'Kärppien Aa Bee (29) ja päävalmentaja Cc Coach, SaiPan Dd Away (7) sekä linjatuomari Ref 4')
+        self.assertEqual(cap.people(names(['Someone Else']), index), 'Someone Else')    # not in any team
+        template, info = cap.fromGame(d, d.games[1])
+        self.assertEqual(template, '{people} Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
+                         ('Away–Home', 'Lappeenranta', 'Finland', 'FI', 'Lappeenrannan jäähalli I'))
+        self.assertEqual(cap.render(template, 'Kärppien Aa Bee (29)'),
+                         'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertEqual(cap.render('{people}, Oulu', 'linjatuomari X'), 'Linjatuomari X, Oulu')
+
+    def test_caption_follows_the_people(self):
+        cap = self.lua.eval('require("Caption")')
+        t = '{people} Liigan ottelussa.'
+        self.assertEqual(cap.update('', t, '', 'A (1)'), 'A (1) Liigan ottelussa.')
+        self.assertEqual(cap.update('A (1) Liigan ottelussa.', t, 'A (1)', 'A (1) ja B (2)'),
+                         'A (1) ja B (2) Liigan ottelussa.')
+        self.assertEqual(cap.update('A (1) Liigan ottelussa.', t, 'A (1)', ''), '')        # last one off: empty again
+        # your own wording: only the names change
+        self.assertEqual(cap.update('Maali! A (1) tuulettaa.', t, 'A (1)', 'A (1) ja B (2)'),
+                         'Maali! A (1) ja B (2) tuulettaa.')
+        self.assertIsNone(cap.update('Yleisö juhlii.', t, '', 'A (1)'))                  # no names in it: left alone
+        self.assertIsNone(cap.update('', '', '', 'A (1)'))                                # no template: nothing
+
+    def test_tagging_writes_caption_and_game_details(self):
+        lua = self.lua
+        photos = lua.eval('''{ makePhoto(1, {}, 1000), makePhoto(2, {}, 1000, { caption = 'Yleisö juhlii.', city = 'Oulu' }) }''')
+        catalog = lua.eval('makeCatalog')(photos)
+        tagging, cap = lua.eval('require("Tagging")'), lua.eval('require("Caption")')
+        d = self.data
+        template, info = cap.fromGame(d, d.games[1])
+        opts = lua.table_from({'template': template, 'index': cap.index(d, d.teams[1], d.teams[2]), 'info': info})
+        self.assertEqual(tagging.toggle(catalog, photos, d.teams[1].people[1], opts), ('added', 1))
+        self.assertEqual(photos[1].meta.caption,
+                         'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertEqual(photos[2].meta.caption, 'Yleisö juhlii.')                  # your own caption stays
+        self.assertEqual((photos[1].meta.headline, photos[1].meta.city, photos[1].meta.location),
+                         ('Away–Home', 'Lappeenranta', 'Lappeenrannan jäähalli I'))
+        self.assertEqual(photos[2].meta.city, 'Oulu')                               # filled in only where empty
+        tagging.toggle(catalog, lua.eval('function(p) return { p } end')(photos[1]), d.teams[2].people[1], opts)
+        self.assertEqual(photos[1].meta.personShown, 'Aa Bee, Dd Away')
+        self.assertTrue(photos[1].meta.caption.startswith('Kärppien Aa Bee (29) ja SaiPan Dd Away (7) Liigan'))
+        tagging.toggle(catalog, lua.eval('function(p) return { p } end')(photos[1]), d.teams[1].people[1], opts)
+        self.assertTrue(photos[1].meta.caption.startswith('SaiPan Dd Away (7) Liigan'))   # Aa Bee taken off
 
     def test_window_builds_and_tags(self):
         lua = self.lua
@@ -276,10 +333,27 @@ class TestPluginLua(Base):
             walk(root)
             return found
         end''')(dialog.contents)
+        named = lua.eval('''function(root)
+            local found = {}
+            local function walk(v)
+              if type(v) ~= 'table' then return end
+              if v.kind == 'push_button' and type(v.title) == 'string' then found[v.title] = v end
+              for _, c in ipairs(v) do walk(c) end
+            end
+            walk(root)
+            return found
+        end''')(dialog.contents)
+        named['From Game'].action()                                                # caption for the photo's game
+        self.assertEqual(props.template, '{people} Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertIn('Away–Home', props.infoText)
+        self.assertEqual(stub.prefs.template, props.template)                      # remembered
         buttons['a_1_title'].action()
         self.assertTrue(photos[1].kws['Aa Bee'])
         self.assertEqual(props['a_1_title'], '✓ #29 Bee')
         self.assertIn('Tagged Aa Bee on 1 photo', props.status)
+        self.assertEqual(photos[1].meta.caption,
+                         'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertEqual(photos[1].meta.location, 'Lappeenrannan jäähalli I')
         props.teamB = ''
         props.observers['teamB']()
         self.assertFalse(props['b_1_vis'])

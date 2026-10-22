@@ -9,6 +9,7 @@ local LrPrefs = import 'LrPrefs'
 local LrTasks = import 'LrTasks'
 local LrView = import 'LrView'
 
+local Caption = require 'Caption'
 local Data = require 'Data'
 local Model = require 'Model'
 local Tagging = require 'Tagging'
@@ -86,6 +87,15 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 	props.teamB = pick(prefs.teamB or '-', data.defaults[2], '')
 	props.showRefs = data.referees ~= nil and prefs.showRefs ~= false
 	props.status = 'Select photos in Lightroom, then click a person.'
+	props.template = prefs.template or ''
+	props.writeCaption = prefs.writeCaption ~= false
+	props.writeInfo = prefs.writeInfo ~= false
+	local info = prefs.info
+	local function infoText()
+		if not info then return 'No game details yet: use From Game.' end
+		return table.concat({ info.headline or '', info.location or '', info.city or '', info.country or '' }, '  ·  ')
+	end
+	props.infoText = infoText()
 
 	local function redraw()
 		Model.fillAll(props, shown, data, data.byId[props.teamA], data.byId[props.teamB], state.counts, state.n,
@@ -119,11 +129,37 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 				props.status = 'Select one or more photos first.'
 				return
 			end
-			local done = Tagging.toggle(catalog, photos, entry)
+			local done, kept = Tagging.toggle(catalog, photos, entry, {
+				template = props.writeCaption and props.template or nil,
+				index = Caption.index(data, data.byId[props.teamA], data.byId[props.teamB]),
+				info = props.writeInfo and info or nil,
+			})
 			local s = #photos == 1 and '' or 's'
 			props.status = (done == 'added' and ('Tagged ' .. entry.name .. ' on ') or ('Removed ' .. entry.name .. ' from '))
 				.. #photos .. ' photo' .. s
+				.. (kept > 0 and ('. ' .. kept .. ' caption' .. (kept == 1 and '' or 's')
+					.. ' left as you wrote ' .. (kept == 1 and 'it' or 'them') .. '.') or '')
 			refresh(true)
+		end)
+	end
+
+	-- a news caption and the game's details for the selected photo's game
+	local function fromGame()
+		LrTasks.startAsyncTask(function()
+			local photos = Tagging.selection(catalog)
+			local a, b = data.byId[props.teamA], data.byId[props.teamB]
+			local game = Model.gameFor(data, Tagging.day(photos[1]), a and a.liiga, b and b.liiga)
+			if not game then
+				props.status = 'No game found: select a photo from the game, with one or both of its teams chosen above.'
+				return
+			end
+			local template, details = Caption.fromGame(data, game)
+			props.template = template
+			prefs.template = template
+			info = details
+			prefs.info = details
+			props.infoText = infoText()
+			props.status = 'Caption and game details set for ' .. details.headline .. '.'
 		end)
 	end
 
@@ -134,6 +170,9 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 	props:addObserver('teamA', later(function() prefs.teamA = props.teamA; refresh(true) end))
 	props:addObserver('teamB', later(function() prefs.teamB = props.teamB; refresh(true) end))
 	props:addObserver('showRefs', later(function() prefs.showRefs = props.showRefs; redraw() end))
+	props:addObserver('template', function() prefs.template = props.template end)
+	props:addObserver('writeCaption', function() prefs.writeCaption = props.writeCaption end)
+	props:addObserver('writeInfo', function() prefs.writeInfo = props.writeInfo end)
 
 	local f = LrView.osFactory()
 	local contents = f:column {
@@ -147,6 +186,25 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 			end },
 			f:popup_menu { items = teamItems(data, true), value = bind('teamB'), width = 200 },
 			f:checkbox { title = 'Referees', value = bind('showRefs'), enabled = data.referees ~= nil },
+		},
+		f:row {
+			spacing = 8,
+			f:static_text { title = 'Caption', width = 52 },
+			f:edit_field {
+				value = bind('template'), width_in_chars = 78, height_in_lines = 2, immediate = true,
+				tooltip = 'Written into the caption of every photo you tag; {people} becomes the people on the photo, '
+					.. 'e.g. "Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10)". A caption you wrote '
+					.. 'yourself is kept: only the names in it change.',
+			},
+			f:push_button { title = 'From Game', action = fromGame,
+				tooltip = 'A news caption and the headline, city, country and arena for the selected photo\'s game' },
+		},
+		f:row {
+			spacing = 8,
+			f:static_text { title = '', width = 52 },
+			f:checkbox { title = 'Write caption', value = bind('writeCaption') },
+			f:checkbox { title = 'Fill in headline, city, country, arena:', value = bind('writeInfo') },
+			f:static_text { title = bind('infoText'), fill_horizontal = 1 },
 		},
 		f:row {
 			spacing = 10,

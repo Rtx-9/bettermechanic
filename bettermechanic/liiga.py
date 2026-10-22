@@ -97,19 +97,27 @@ def staff_from(team_info):
     return out
 
 
-def game_from(detail):
-    """/games/{season}/{id} -> (game id, {'date', 'teams', 'refs'}, {name: referee entry})."""
-    g = detail.get('game') or {}
+def game_record(g):
+    """A game from the season list or a game's details -> {'date', 'teams', 'refs', 'rink', 'city'}."""
     start = datetime.datetime.fromisoformat(str(g.get('start', '')).replace('Z', '+00:00'))
-    day = (start + datetime.timedelta(hours=3)).date().isoformat()      # Finnish local date
+    rink = g.get('iceRink') or {}
+    return {'date': (start + datetime.timedelta(hours=3)).date().isoformat(),           # Finnish local date
+            'teams': [(g.get('homeTeam') or {}).get('teamId'), (g.get('awayTeam') or {}).get('teamId')],
+            'refs': [], 'rink': str(rink.get('name') or '').strip(), 'city': str(rink.get('city') or '').strip().title()}
+
+
+def game_from(detail):
+    """/games/{season}/{id} -> (game id, game record, {name: referee entry})."""
+    g = detail.get('game') or {}
+    rec = game_record(g)
     refs = {}
     for r in g.get('referees') or []:
         name = _name(r.get('firstName'), r.get('lastName'))
         if name:
             refs[name] = {'name': name, 'number': '', 'image': r.get('pictureUrl') or '',
                           'role': OFFICIALS.get(r.get('roleAbbrv'), str(r.get('roleName') or 'Referee'))}
-    teams = [(g.get('homeTeam') or {}).get('teamId'), (g.get('awayTeam') or {}).get('teamId')]
-    return g.get('id'), {'date': day, 'teams': teams, 'refs': list(refs)}, refs
+    rec['refs'] = list(refs)
+    return g.get('id'), rec, refs
 
 
 def referees_team(officials):
@@ -148,7 +156,11 @@ def fetch(season=None, games=None, timeout=20):
         try:
             for g in _get(f'/games?tournament={tour}&season={season}', timeout):
                 key = f'{season}:{g.get("id")}'
-                if (g.get('started') or g.get('ended')) and (key not in known or not known[key]['refs']):
+                rec = _try(lambda: game_record(g))           # every game, played or not: date, teams, arena
+                if rec:
+                    rec['refs'] = (known.get(key) or {}).get('refs') or []
+                    known[key] = rec
+                if (g.get('started') or g.get('ended')) and not known.get(key, {}).get('refs'):
                     todo.append(g['id'])
         except Exception:
             continue
