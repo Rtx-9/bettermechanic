@@ -700,12 +700,39 @@ class SettingsDialog(QDialog):
         self.digits.setRange(1, 8)
         self.digits.setValue(int(s.get('seq_digits', 4)))
         f.addRow('{seq} digits', self.digits)
+        f.addRow(_hdr('Lightroom Classic'))
+        from . import lightroom
+        lr = QHBoxLayout()
+        self.lr_btn = QPushButton('Reinstall Lightroom Plugin' if lightroom.installed() else 'Install Lightroom Plugin')
+        self.lr_btn.setToolTip('Adds a Players window to Lightroom Classic (Library > Plug-in Extras > '
+                               'BetterMechanic Players): the teams and referees with photos; click to tag the '
+                               'photos selected in Lightroom.')
+        self.lr_btn.clicked.connect(self.install_lightroom)
+        lr.addWidget(self.lr_btn)
+        self.lr_msg = QLabel('Installed' if lightroom.installed() else '')
+        self.lr_msg.setObjectName('dim')
+        self.lr_msg.setWordWrap(True)
+        lr.addWidget(self.lr_msg, 1)
+        f.addRow('Players window', lr)
         lay.addLayout(f)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setObjectName('primary')
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+    def install_lightroom(self):
+        from . import lightroom
+        try:
+            path = lightroom.install()
+        except OSError as e:
+            QMessageBox.warning(self, 'Lightroom plugin', f'Couldn’t install the plugin:\n{e}')
+            return
+        self.win.export_lightroom()
+        self.lr_btn.setText('Reinstall Lightroom Plugin')
+        self.lr_msg.setText('Installed. Restart Lightroom Classic, then choose Library > Plug-in Extras > '
+                            'BetterMechanic Players. Photos for the window are being prepared in the background.')
+        self.lr_msg.setToolTip(path)
 
     def accept(self):
         s = self.win.cfg.settings

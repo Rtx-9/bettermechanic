@@ -165,6 +165,11 @@ def make_avatar_file(src, dest):
     os.replace(tmp, dest)
 
 
+def cache_path(cache_dir, src):
+    """Where the square photo for an image link or file is kept."""
+    return os.path.join(cache_dir, hashlib.sha1(src.strip().encode('utf-8')).hexdigest() + '.jpg')
+
+
 class AvatarStore(QObject):
     ready = Signal(str)          # source string whose image finished (or failed)
 
@@ -177,7 +182,7 @@ class AvatarStore(QObject):
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='avatar')
 
     def path_for(self, src):
-        return os.path.join(self.dir, hashlib.sha1(src.strip().encode('utf-8')).hexdigest() + '.jpg')
+        return cache_path(self.dir, src)
 
     def get(self, src):
         """QPixmap if ready, else None (and starts loading it)."""

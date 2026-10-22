@@ -86,6 +86,16 @@ files are written. Your own labels and higher ratings are never replaced, and un
 Rejected photos simply aren't ingested. Photos that are already in a Lightroom catalog
 need *Metadata → Read Metadata from Files* to pick up changes.
 
+### Players window inside Lightroom Classic
+
+To tag photos that are already in Lightroom, install the plugin from **Settings → Lightroom Classic → Install
+Lightroom Plugin** and restart Lightroom. **Library → Plug-in Extras → BetterMechanic Players** (or File → Plug-in
+Extras) opens a window you can keep next to your photos: pick two teams, and every player and staff member shows with
+their photo and number, with the referees beside them (this game's first). Click someone to tag the photos selected in
+Lightroom: their name goes in the keywords and in *Person Shown*, and the team's keywords are added. Click again to
+take them off. People already on the selection get a ✓. BetterMechanic keeps the teams and photos up to date for the
+window, and updates the plugin itself when you install a new version.
+
 ## Download (Windows)
 
 Grab the latest release from the [Releases page](https://github.com/Rtx-9/bettermechanic/releases/latest):
@@ -154,7 +164,8 @@ python tests/samples.py demo_card     # writes a small fake memory card to try t
 ```
 
 The tests build synthetic JPEG/NEF/CR3/ORF files and check preview extraction, orientation,
-XMP/IPTC round-trips, sidecar merging and the ingest copy.
+XMP/IPTC round-trips, sidecar merging and the ingest copy. With `pip install lupa` they also run the Lightroom
+plugin's Lua code (Lua 5.1, like Lightroom) against stand-ins for Lightroom's modules.
 
 ## License
 

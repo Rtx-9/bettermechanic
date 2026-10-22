@@ -1,11 +1,13 @@
 """Main window: wires the views, the background workers and every action together."""
 from __future__ import annotations
 
+import copy
 import datetime
 import os
 import sys
 import threading
 from collections import OrderedDict
+from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
@@ -14,7 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication
                                QPlainTextEdit, QPushButton, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import core, icons, liiga, theme
+from . import core, icons, liiga, lightroom, theme
 from .avatars import AvatarStore
 from .config import key_label
 from .picker import PlayerPicker, RosterEditor
@@ -98,6 +100,15 @@ class MainWindow(QMainWindow):
             cfg.save()
         if liiga.due(cfg):
             QTimer.singleShot(4000, lambda: self.update_liiga(quiet=True))
+        self.lr_thread = None
+        self.lr_timer = QTimer(self, singleShot=True, interval=3000, timeout=self.export_lightroom)
+        if lightroom.installed():
+            if not lightroom.up_to_date():          # a newer app brings a newer plugin
+                try:
+                    lightroom.install()
+                except OSError:
+                    pass
+            self.lr_timer.start()
         self.teams.reload()
         self.refresh_panels()
         self.update_status()
@@ -902,6 +913,7 @@ class MainWindow(QMainWindow):
     def preset_changed(self, quiet=False):
         self.cfg.save()
         self.teams.reload()
+        self.lr_timer.start()
         self.panels_later()
         self.update_status()
         if not quiet:
@@ -914,6 +926,24 @@ class MainWindow(QMainWindow):
         finally:
             self.board = None
         self.preset_changed(quiet=True)
+
+    def export_lightroom(self):
+        """Refresh the Lightroom plugin's teams and photos in the background, once the plugin is installed."""
+        if not lightroom.installed():
+            return
+        if self.lr_thread is not None and self.lr_thread.is_alive():
+            self.lr_timer.start()                   # try again when this one is done
+            return
+        snap = SimpleNamespace(tag_presets=copy.deepcopy(self.cfg.tag_presets), path=self.cfg.path)
+        avatar_dir = self.avatars.dir
+
+        def run():
+            try:
+                lightroom.export(snap, avatar_dir)
+            except Exception:                       # e.g. the folder is locked: next change tries again
+                pass
+        self.lr_thread = threading.Thread(target=run, daemon=True, name='lightroom')
+        self.lr_thread.start()
 
     def update_liiga(self, quiet=False, done=None):
         """Refresh Liiga rosters from liiga.fi in the background. quiet: automatic daily check, existing teams only."""

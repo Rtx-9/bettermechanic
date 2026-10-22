@@ -6,6 +6,7 @@ import datetime
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +32,9 @@ def pump(secs=0.3):
 class TestTeamsPanel(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        patch = mock.patch('bettermechanic.lightroom.modules_dir', return_value=os.path.join(self.tmp, 'Modules'))
+        patch.start()                                   # never the real Lightroom plugin folder
+        self.addCleanup(patch.stop)
         self.cfg = Config(os.path.join(self.tmp, 'config.json'))
         self.cfg.settings.update(liiga_bundle=liiga.BUNDLE, liiga_auto_update=False, auto_save=False)
         home, away, refs = tag_preset('Home', ['Aa Home']), tag_preset('Away'), tag_preset('Liiga Referees')
