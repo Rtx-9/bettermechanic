@@ -320,7 +320,7 @@ def avatar_icon(store, name, src, size=36):
 
 
 class RosterEditor(QDialog):
-    COLS = ['', '#', 'Name', 'Photo link or file', 'Key']
+    COLS = ['', '#', 'Name', 'Photo link or file', 'Key', 'Role']
 
     def __init__(self, win, preset):
         super().__init__(win)
@@ -329,7 +329,9 @@ class RosterEditor(QDialog):
         self.resize(min(980, win.width() - 60), min(720, win.height() - 60))
         lay = QVBoxLayout(self)
         intro = QLabel('Everyone you might tag for this preset: as many players as you like. Give your most-tagged '
-                       'players a quick key (1–0, Shift + 1–0); find everyone else with the player picker (F).')
+                       'players a quick key (1–0, Shift + 1–0); find everyone else with the player picker (F). '
+                       'Give coaches and other staff a Role (e.g. Assistant coach). People you add here stay when '
+                       'Liiga rosters update.')
         intro.setWordWrap(True)
         intro.setObjectName('dim')
         lay.addWidget(intro)
@@ -354,9 +356,13 @@ class RosterEditor(QDialog):
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
         hh.setSectionResizeMode(3, QHeaderView.Stretch)
         hh.setSectionResizeMode(4, QHeaderView.Fixed)
+        hh.setSectionResizeMode(5, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 52)
         self.table.setColumnWidth(1, 56)
         self.table.setColumnWidth(4, 90)
+        self.table.setColumnWidth(5, 140)
+        self.table.horizontalHeaderItem(5).setToolTip('Empty for players. For others e.g. Head coach, Assistant coach, '
+                                                      'Physio, Referee: they show under Staff in the players panel')
         self.table.itemChanged.connect(self._changed)
         lay.addWidget(self.table, 1)
         tip = QLabel('Paste lines like  9, Gustav Forsling, https://example.com/9.jpg   or   #9 Gustav Forsling. '
@@ -393,7 +399,10 @@ class RosterEditor(QDialog):
         icon.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
         self.table.setItem(r, 0, icon)
         self.table.setItem(r, 1, QTableWidgetItem(str(e.get('number') or '')))
-        self.table.setItem(r, 2, QTableWidgetItem(e.get('name', '')))
+        name = QTableWidgetItem(e.get('name', ''))
+        name.setData(Qt.UserRole, bool(e.get('liiga')))        # came from liiga.fi: replaced by updates
+        self.table.setItem(r, 2, name)
+        self.table.setItem(r, 5, QTableWidgetItem(e.get('role', '')))
         self.table.setItem(r, 3, QTableWidgetItem(e.get('image', '')))
         combo = QComboBox()
         combo.addItems(KEY_CHOICES)
@@ -408,7 +417,9 @@ class RosterEditor(QDialog):
         get = lambda c: (self.table.item(r, c).text().strip() if self.table.item(r, c) else '')  # noqa: E731
         combo = self.table.cellWidget(r, 4)
         k = combo.currentIndex() - 1 if combo else -1
-        return {'number': get(1).lstrip('#'), 'name': get(2), 'image': get(3), 'key': k if k >= 0 else None}
+        it = self.table.item(r, 2)
+        return {'number': get(1).lstrip('#'), 'name': get(2), 'image': get(3), 'key': k if k >= 0 else None,
+                'role': get(5), 'liiga': bool(it and it.data(Qt.UserRole))}
 
     def _refresh_icon(self, r):
         v = self._row_values(r)
@@ -538,7 +549,8 @@ class RosterEditor(QDialog):
             if not v['name'] or v['name'] in seen:
                 continue
             seen.add(v['name'])
-            roster.append({'name': v['name'], 'number': v['number'], 'image': v['image']})
+            roster.append({'name': v['name'], 'number': v['number'], 'image': v['image'], 'role': v['role'],
+                           'liiga': v['liiga']})
             if v['key'] is not None:
                 slots[v['key']] = v['name']
         self.p['roster'], self.p['slots'] = roster, slots

@@ -109,7 +109,7 @@ class PresetBoard(QDialog):
         lay = QVBoxLayout(self)
         intro = QLabel('Each column is a preset. Keys 1–0 tag the first ten names, Shift + 1–0 the next ten. '
                        'Put everyone else in the roster and find them with the player picker (F). '
-                       'Switch presets with P / Shift+P or the selector in the left panel.')
+                       'Switch presets with P / Shift+P, or click players in the panel under the photos.')
         intro.setWordWrap(True)
         intro.setObjectName('dim')
         lay.addWidget(intro)

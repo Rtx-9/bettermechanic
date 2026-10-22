@@ -31,15 +31,20 @@ presets per sport or team.
   move with the arrows or the mouse wheel, and press **Enter** to tag (**Shift+Enter** tags and keeps it open for the next
   player, **Tab** searches every preset). Typing a new name offers to add it to the roster. Paste a whole roster from a
   spreadsheet or team page (`9, Gustav Forsling, https://…/9.jpg`); players without a photo get coloured initials.
-- **Players panel: two teams, one click.** Under the photos, pick any two presets (say home and away) and every
-  player shows as a photo tile with their number. Click a player to tag the selected photos, click again to remove
-  them; players already on the selection are highlighted. **B** shows or hides the panel, ⇄ swaps the teams.
-- **Every Liiga team built in.** All 17 Liiga teams come as tag presets, each with its full roster, jersey numbers and
-  liiga.fi player photos. The app refreshes the rosters from liiga.fi once a day (Settings → *Keep Liiga rosters up to
-  date*), or on demand with **Update Liiga Rosters** in Tag Presets. Your quick keys, keywords and captions are kept.
+- **Players panel: two teams and the referees, one click.** Under the photos, pick any two presets (say home and
+  away): every player shows as a photo tile with their number, and the team's staff below them. Click someone to tag
+  the selected photos, click again to remove them; people already on the selection are highlighted. A third column
+  holds the Liiga referees and linesmen, with the officials of the photo's game first (matched by the photo's date
+  and the two teams). **B** shows or hides the panel, ⇄ swaps the teams, **Refs** hides the referees.
+- **Every Liiga team built in.** All 17 Liiga teams come as tag presets, each with its full roster, jersey numbers,
+  liiga.fi player photos and staff (head coach, CEO, chairman), plus a *Liiga Referees* preset with every referee and
+  linesman of the season. The app refreshes it all from liiga.fi once a day (Settings → *Keep Liiga rosters up to
+  date*), or on demand with **Update Liiga Rosters** in Tag Presets. Your quick keys, keywords and captions are kept,
+  and so are people you add yourself: give them a **Role** in the roster editor (e.g. *Assistant coach*) and they
+  show under Staff.
 - **Metadata presets.** Templates for caption, headline, event, credit, copyright, city, keywords and the rest of
   the IPTC fields. Variables such as `{people}`, `{event}`, `{longdate}`, `{camera}` and `{seq}` are filled in per photo.
-  Apply them with one click, or automatically during ingest.
+  Apply one from the menu on the metadata presets button in the toolbar, or automatically during ingest.
 - **Culling.** Tag (T), reject (X), stars (Alt+1–5), color labels (Alt+6–9), filters (tagged, rejected,
   rated, has players …), and search by file name, player, keyword or caption.
 - **Cull straight from the card.** Open a memory card (any folder with a DCIM folder) and it opens read-only with all its
@@ -58,7 +63,7 @@ presets per sport or team.
   fields as Lightroom and Photo Mechanic.
 - RAW + JPEG pairs are shown as one photo; edits go to both.
 - **Native-feeling interface** modelled on Apple's Human Interface Guidelines: system font and colors,
-  a quiet icon toolbar, a source-list sidebar, an inspector of grouped sections, and light/dark appearance
+  a quiet icon toolbar, a players panel, an inspector of grouped sections, and light/dark appearance
   that follows the system (or set it in Settings). The large preview always stays dark.
 
 ## Using it with Lightroom

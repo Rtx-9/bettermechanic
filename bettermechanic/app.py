@@ -5,13 +5,13 @@ import datetime
 import os
 import sys
 import threading
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 
 from PySide6.QtCore import QEvent, QItemSelectionModel, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QButtonGroup, QComboBox, QFileDialog, QFrame,
-                               QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
-                               QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
+                               QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+                               QPlainTextEdit, QPushButton, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from . import core, icons, liiga, theme
@@ -20,7 +20,7 @@ from .config import key_label
 from .picker import PlayerPicker, RosterEditor
 from .teams import TeamsPanel
 from .dialogs import CopyDialog, HelpDialog, MetaPresets, PresetBoard, SettingsDialog
-from .views import Filmstrip, GridView, InfoPanel, KeysPanel, Loupe, PhotoModel, PixCache, ThumbDelegate
+from .views import Filmstrip, GridView, InfoPanel, Loupe, PhotoModel, PixCache, ThumbDelegate
 from .workers import Bus, CopyJob, Loader, Saver
 
 K = lambda name: getattr(Qt.Key, name).value          # noqa: E731
@@ -28,7 +28,7 @@ MAC_DIGITS = {29: 0, 18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25:
 
 
 class _Fetched(QObject):
-    ready = Signal(object, object)      # (teams, error) from the liiga.fi thread
+    ready = Signal(object, object)      # (liiga.fetch() data, error) from the liiga.fi thread
 
 FILTERS = [
     ('all', 'All photos', lambda it: True),
@@ -98,7 +98,6 @@ class MainWindow(QMainWindow):
             cfg.save()
         if liiga.due(cfg):
             QTimer.singleShot(4000, lambda: self.update_liiga(quiet=True))
-        self.keys.refresh_presets()
         self.teams.reload()
         self.refresh_panels()
         self.update_status()
@@ -135,8 +134,6 @@ class MainWindow(QMainWindow):
         tb.setFloatable(False)
         tb.setContextMenuPolicy(Qt.PreventContextMenu)
         self.addToolBar(tb)
-        self.tb_sidebar = self._tool(tb, 'sidebar_left', 'Sidebar', self.toggle_sidebar,
-                                     'Show or hide the tag keys sidebar', label=False, checkable=True)
         titles = QWidget()
         tl = QVBoxLayout(titles)
         tl.setContentsMargins(8, 0, 14, 0)
@@ -212,7 +209,12 @@ class MainWindow(QMainWindow):
                                    'Show or hide the players of two teams to tag by clicking (B)', label=False,
                                    checkable=True)
         self._tool(tb, 'tag', 'Tag Presets', self.open_presets, 'Tag presets: player keys', label=False)
-        self._tool(tb, 'text', 'Metadata Presets', self.open_meta_presets, 'Metadata presets (Ctrl+M)', label=False)
+        meta = self._tool(tb, 'text', 'Metadata Presets', self.open_meta_presets,
+                          'Metadata presets: click to edit, or apply one from the menu (Ctrl+M)', label=False)
+        self.meta_menu = QMenu(self)
+        self.meta_menu.aboutToShow.connect(self._fill_meta_menu)
+        meta.setMenu(self.meta_menu)
+        meta.setPopupMode(QToolButton.MenuButtonPopup)
         self._tool(tb, 'gear', 'Settings', lambda: SettingsDialog(self).exec(), 'Settings (Ctrl+,)', label=False)
         self._tool(tb, 'help', 'Help', lambda: HelpDialog(self).exec(), 'Keyboard shortcuts (F1)', label=False)
         self.tb_inspector = self._tool(tb, 'sidebar_right', 'Inspector', self.toggle_inspector,
@@ -221,13 +223,6 @@ class MainWindow(QMainWindow):
         split = QSplitter(Qt.Horizontal)
         split.setHandleWidth(1)
         split.setChildrenCollapsible(False)
-        self.keys = KeysPanel(self)
-        self.left = QScrollArea()
-        self.left.setWidget(self.keys)
-        self.left.setWidgetResizable(True)
-        self.left.setFrameShape(QFrame.NoFrame)
-        self.left.setMinimumWidth(240)
-        split.addWidget(self.left)
 
         center = QWidget()
         cl = QVBoxLayout(center)
@@ -291,10 +286,9 @@ class MainWindow(QMainWindow):
         self.info = InfoPanel(self)
         self.info.setMinimumWidth(300)
         split.addWidget(self.info)
-        split.setStretchFactor(1, 1)
-        split.setSizes([260, 1000, 340])
+        split.setStretchFactor(0, 1)
+        split.setSizes([1160, 340])
         self.setCentralWidget(split)
-        self.tb_sidebar.setChecked(True)
         self.tb_inspector.setChecked(True)
 
         sm = self.grid.selectionModel()
@@ -334,13 +328,9 @@ class MainWindow(QMainWindow):
             b.setIcon(self.icon(b._icon))
         self.search_icon.setIcon(self.icon('search'))
         self.info.restyle()
-        self.keys.refresh_presets()
+        self.teams.update()
         for v in (self.grid.viewport(), self.strip.viewport(), self.loupe):
             v.update()
-
-    def toggle_sidebar(self):
-        self.left.setVisible(not self.left.isVisible())
-        self.tb_sidebar.setChecked(self.left.isVisible())
 
     def toggle_inspector(self):
         self.info.setVisible(not self.info.isVisible())
@@ -786,7 +776,7 @@ class MainWindow(QMainWindow):
         p = self.cfg.tag
         name = p['slots'][i].strip()
         if not name:
-            self.toast(f'Key {key_label(i)} is empty in “{p["name"]}”. Hover it and click Edit, or press F to pick a player')
+            self.toast(f'Key {key_label(i)} is empty in “{p["name"]}”. Set quick keys in Tag Presets, or click a player below')
             return
         self.toggle_name(name)
 
@@ -911,20 +901,11 @@ class MainWindow(QMainWindow):
 
     def preset_changed(self, quiet=False):
         self.cfg.save()
-        self.keys.refresh_presets()
         self.teams.reload()
         self.panels_later()
         self.update_status()
         if not quiet:
             self.toast(f'Tag preset: {self.cfg.tag["name"]}')
-
-    def rename_slot(self, i):
-        p = self.cfg.tag
-        text, ok = QInputDialog.getText(self, 'Name for key ' + key_label(i),
-                                        f'Player for key {key_label(i)} in “{p["name"]}”:', text=p['slots'][i])
-        if ok:
-            p['slots'][i] = text.strip()
-            self.preset_changed(quiet=True)
 
     def open_presets(self):
         self.board = PresetBoard(self)
@@ -942,22 +923,23 @@ class MainWindow(QMainWindow):
         job = self.liiga_job = _Fetched()
         job.quiet = quiet
         job.ready.connect(self._liiga_done)
+        known = liiga.load_games(self.cfg)
 
         def run():
             try:
-                job.ready.emit(liiga.fetch(), None)
+                job.ready.emit(liiga.fetch(games=known), None)
             except Exception as e:      # offline, liiga.fi changed, season not started …
                 job.ready.emit(None, e)
         threading.Thread(target=run, daemon=True, name='liiga').start()
 
-    def _liiga_done(self, teams, err):
+    def _liiga_done(self, data, err):
         job, cb = self.liiga_job, self.liiga_done_cb
         self.liiga_job = self.liiga_done_cb = None
         if err is not None:
             msg = f'Couldn’t get rosters from liiga.fi ({err})'
         else:
             self.cfg.settings['liiga_checked'] = datetime.date.today().isoformat()
-            added, updated = liiga.apply(self.cfg, teams, add_missing=not job.quiet)
+            added, updated = liiga.apply(self.cfg, data, add_missing=not job.quiet)
             self.preset_changed(quiet=True)
             if self.board is not None:
                 self.board.render()
@@ -976,7 +958,14 @@ class MainWindow(QMainWindow):
 
     def open_meta_presets(self):
         MetaPresets(self).exec()
-        self.keys.refresh_presets()
+
+    def _fill_meta_menu(self):
+        self.meta_menu.clear()
+        for mp in self.cfg.meta_presets:
+            self.meta_menu.addAction(f'Apply “{mp["name"]}”', lambda pid=mp['id']: self.apply_meta_preset(pid))
+        if self.cfg.meta_presets:
+            self.meta_menu.addSeparator()
+        self.meta_menu.addAction('Edit Metadata Presets…', self.open_meta_presets)
 
     # ============================================================= copy
     def open_copy(self, which=None):
@@ -1003,8 +992,6 @@ class MainWindow(QMainWindow):
         ts = self.targets()
         if len(ts) <= 300:
             self.loaded(ts)
-        counts = Counter(p for it in self.items if it.meta_loaded for p in it.meta['people'])
-        self.keys.refresh(ts, counts)
         self.info.refresh(ts[:300])
         if self.teams.isVisible():
             self.teams.refresh(ts)

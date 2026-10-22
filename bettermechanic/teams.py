@@ -1,10 +1,17 @@
-"""Players panel: two teams side by side, every player a clickable photo tile. Click tags or untags the selection."""
+"""Players panel: two teams side by side plus the referees, everyone a clickable photo tile.
+
+Click tags or untags the selection. Teams are split into players and staff; the referees column puts the
+officials of the game the photo is from first (matched by date and the two teams shown).
+"""
 from __future__ import annotations
+
+import datetime
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
+from . import liiga
 from .avatars import draw_avatar
 from .config import players
 from .picker import _check_badge
@@ -12,14 +19,16 @@ from .theme import qc
 
 
 class TeamGrid(QWidget):
-    """Flow of player tiles, painted directly (fast with a few hundred players)."""
+    """Sections of player tiles, painted directly (fast with a few hundred people)."""
     clicked = Signal(str)
     TILE = QSize(80, 94)
+    HEAD = 22
 
     def __init__(self, store):
         super().__init__()
         self.store = store
-        self.entries, self.have, self.n = [], {}, 0
+        self.sections, self.tiles, self.heads = [], [], []
+        self.have, self.n = {}, 0
         self.hover = -1
         self.setMouseTracking(True)
         self.name_font = QFont()
@@ -27,13 +36,24 @@ class TeamGrid(QWidget):
         self.num_font = QFont()
         self.num_font.setPixelSize(11)
         self.num_font.setWeight(QFont.DemiBold)
+        self.head_font = QFont()
+        self.head_font.setPixelSize(11)
+        self.head_font.setWeight(QFont.DemiBold)
         store.ready.connect(lambda _src: self.update())
 
-    def set_entries(self, entries):
-        self.entries = entries
+    @property
+    def entries(self):
+        return [e for _, ents in self.sections for e in ents]
+
+    def set_sections(self, sections):
+        """[(title, entries)]; empty sections are skipped, a single section gets no header."""
+        self.sections = [(t, ents) for t, ents in sections if ents]
         self.hover = -1
-        self._fit()
+        self._layout()
         self.update()
+
+    def set_entries(self, entries):
+        self.set_sections([('', entries)])
 
     def set_state(self, have, n):
         self.have, self.n = have, n
@@ -43,26 +63,31 @@ class TeamGrid(QWidget):
     def cols(self):
         return max(1, self.width() // self.TILE.width())
 
-    def tile_rect(self, i):
-        cols = self.cols()
-        pad = (self.width() - cols * self.TILE.width()) / 2
-        return QRectF(pad + (i % cols) * self.TILE.width(), (i // cols) * self.TILE.height(),
-                      self.TILE.width(), self.TILE.height())
-
-    def index_at(self, pos):
-        for i in range(len(self.entries)):
-            if self.tile_rect(i).contains(QPointF(pos)):
-                return i
-        return -1
-
-    def _fit(self):
-        rows = -(-len(self.entries) // self.cols()) if self.entries else 0
-        h = rows * self.TILE.height() + 4
+    def _layout(self):
+        cols, tw, th = self.cols(), self.TILE.width(), self.TILE.height()
+        pad = (self.width() - cols * tw) / 2
+        self.tiles, self.heads, y = [], [], 0
+        titled = len(self.sections) > 1
+        for title, ents in self.sections:
+            if titled and title:
+                self.heads.append((QRectF(pad + 6, y, self.width() - 2 * pad - 12, self.HEAD), title, len(ents)))
+                y += self.HEAD
+            for i, e in enumerate(ents):
+                self.tiles.append((QRectF(pad + (i % cols) * tw, y + (i // cols) * th, tw, th), e))
+            y += -(-len(ents) // cols) * th
+        h = int(y) + 4
         if self.minimumHeight() != h:
             self.setMinimumHeight(h)
 
+    def tile_rect(self, i):
+        return self.tiles[i][0]
+
+    def index_at(self, pos):
+        p = QPointF(pos)
+        return next((i for i, (r, _) in enumerate(self.tiles) if r.contains(p)), -1)
+
     def resizeEvent(self, e):
-        self._fit()
+        self._layout()
         super().resizeEvent(e)
 
     # ---- mouse
@@ -72,8 +97,10 @@ class TeamGrid(QWidget):
             self.hover = i
             self.setCursor(Qt.PointingHandCursor if i >= 0 else Qt.ArrowCursor)
             if i >= 0:
-                en = self.entries[i]
-                self.setToolTip(en['name'] + (f'  #{en["number"]}' if en.get('number') else ''))
+                en = self.tiles[i][1]
+                extra = [f'#{en["number"]}'] if en.get('number') else []
+                extra += [en['role']] if en.get('role') else []
+                self.setToolTip(en['name'] + ('  ·  ' + '  ·  '.join(extra) if extra else ''))
             else:
                 self.setToolTip('')
             self.update()
@@ -86,7 +113,7 @@ class TeamGrid(QWidget):
         if e.button() == Qt.LeftButton:
             i = self.index_at(e.position().toPoint())
             if i >= 0:
-                self.clicked.emit(self.entries[i]['name'])
+                self.clicked.emit(self.tiles[i][1]['name'])
 
     # ---- painting
     def paintEvent(self, e):
@@ -94,8 +121,14 @@ class TeamGrid(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         clip = QRectF(e.rect())
         fm_num, fm_name = QFontMetrics(self.num_font), QFontMetrics(self.name_font)
-        for i, en in enumerate(self.entries):
-            r = self.tile_rect(i)
+        p.setFont(self.head_font)
+        for r, title, n in self.heads:
+            if r.intersects(clip):
+                p.setPen(qc('secondary'))
+                p.drawText(r, Qt.AlignLeft | Qt.AlignVCenter, title.upper())
+                p.setPen(qc('tertiary'))
+                p.drawText(r, Qt.AlignRight | Qt.AlignVCenter, str(n))
+        for i, (r, en) in enumerate(self.tiles):
             if not r.intersects(clip):
                 continue
             have = self.have.get(en['name'], 0)
@@ -138,6 +171,15 @@ class TeamGrid(QWidget):
         p.end()
 
 
+def _scroll(widget):
+    s = QScrollArea()
+    s.setWidget(widget)
+    s.setWidgetResizable(True)
+    s.setFrameShape(QFrame.NoFrame)
+    s.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    return s
+
+
 class TeamColumn(QWidget):
     def __init__(self, panel, side):
         super().__init__()
@@ -157,11 +199,7 @@ class TeamColumn(QWidget):
         lay.addLayout(top)
         self.grid = TeamGrid(panel.win.avatars)
         self.grid.clicked.connect(lambda name: panel.win.toggle_name(name, self.preset()))
-        self.scroll = QScrollArea()
-        self.scroll.setWidget(self.grid)
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll = _scroll(self.grid)
         lay.addWidget(self.scroll, 1)
 
     def preset(self):
@@ -186,17 +224,53 @@ class TeamColumn(QWidget):
         self.combo.blockSignals(False)
         p = self.preset()
         ents = players(p) if p else []
-        self.grid.set_entries(ents)
-        self.count.setText(f'{len(ents)} players' if p else '')
+        self.grid.set_sections([('Players', [e for e in ents if not e.get('role')]),
+                                ('Staff', [e for e in ents if e.get('role')])])
+        self.count.setText(f'{len(ents)} people' if p else '')
         self.scroll.setVisible(p is not None)
 
 
+class RefereeColumn(QWidget):
+    """The Liiga Referees preset; the officials of the current photo's game come first."""
+
+    def __init__(self, panel):
+        super().__init__()
+        self.panel = panel
+        self.game_key = None
+        self.setFixedWidth(2 * TeamGrid.TILE.width() + 34)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 6, 6, 0)
+        lay.setSpacing(4)
+        self.title = QLabel('Referees')
+        self.title.setObjectName('section')
+        self.title.setFixedHeight(26)
+        lay.addWidget(self.title)
+        self.grid = TeamGrid(panel.win.avatars)
+        self.grid.clicked.connect(lambda name: panel.win.toggle_name(name, self.preset()))
+        lay.addWidget(_scroll(self.grid), 1)
+
+    def preset(self):
+        return next((p for p in self.panel.win.cfg.tag_presets if p.get('liiga') == liiga.REFEREES), None)
+
+    def load(self, game=None):
+        p = self.preset()
+        ents = players(p) if p else []
+        here = set(game['refs']) if game else set()
+        first = [e for e in ents if e['name'] in here]
+        rest = [e for e in ents if e['name'] not in here]
+        self.grid.set_sections([('This game', first),
+                                ('Referees', [e for e in rest if e.get('role') != 'Linesman']),
+                                ('Linesmen', [e for e in rest if e.get('role') == 'Linesman'])])
+        self.game_key = id(game) if game else None
+
+
 class TeamsPanel(QFrame):
-    """Home and away (or any two presets) next to each other under the photos."""
+    """Home and away (or any two presets) next to each other under the photos, plus the referees."""
 
     def __init__(self, win):
         super().__init__()
         self.win = win
+        self.games = {}
         self.setObjectName('teams')
         self.setAttribute(Qt.WA_StyledBackground, True)
         lay = QHBoxLayout(self)
@@ -204,18 +278,29 @@ class TeamsPanel(QFrame):
         lay.setSpacing(0)
         self.ids = ['', '']
         self.cols = [TeamColumn(self, 0), TeamColumn(self, 1)]
+        self.refs = RefereeColumn(self)
+        mid = QVBoxLayout()
+        mid.setContentsMargins(0, 8, 0, 0)
+        mid.setSpacing(4)
         swap = QToolButton()
         swap.setText('⇄')
         swap.setToolTip('Swap the two teams')
         swap.setFocusPolicy(Qt.NoFocus)
         swap.clicked.connect(self.swap)
-        lay.addWidget(self.cols[0], 1)
-        mid = QVBoxLayout()
-        mid.setContentsMargins(0, 8, 0, 0)
         mid.addWidget(swap)
         mid.addStretch()
+        self.ref_btn = QToolButton()
+        self.ref_btn.setText('Refs')
+        self.ref_btn.setCheckable(True)
+        self.ref_btn.setToolTip('Show or hide the referees')
+        self.ref_btn.setFocusPolicy(Qt.NoFocus)
+        self.ref_btn.clicked.connect(self.toggle_refs)
+        lay.addWidget(self.cols[0], 1)
         lay.addLayout(mid)
-        lay.addWidget(self.cols[1], 1)       # filled by reload() once the window is built
+        lay.addWidget(self.cols[1], 1)
+        lay.addWidget(self.refs)
+        mid.addWidget(self.ref_btn)
+        # filled by reload() once the window is built
 
     def remember(self):
         self.win.cfg.settings['team_panel'] = list(self.ids)
@@ -232,9 +317,19 @@ class TeamsPanel(QFrame):
         else:                                   # first time: the active preset and the next one
             a = cfg.tag['id']
             self.ids = [a, ids[(ids.index(a) + 1) % len(ids)] if len(ids) > 1 else '']
+        self.games = liiga.load_games(cfg)
         for c in self.cols:
             c.load()
+        show = bool(cfg.settings.get('teams_refs', True)) and self.refs.preset() is not None
+        self.ref_btn.setChecked(show)
+        self.ref_btn.setVisible(self.refs.preset() is not None)
+        self.refs.setVisible(show)
+        self.refs.game_key = -1
         self.refresh()
+
+    def toggle_refs(self):
+        self.win.cfg.settings['teams_refs'] = not self.win.cfg.settings.get('teams_refs', True)
+        self.reload()
 
     def swap(self):
         self.ids.reverse()
@@ -245,6 +340,13 @@ class TeamsPanel(QFrame):
             c.load()
         self.refresh()
 
+    def current_game(self, ts):
+        it = self.win.current_item() or (ts[0] if ts else None)
+        if it is None or not it.time:
+            return None
+        teams = [(c.preset() or {}).get('liiga') for c in self.cols]
+        return liiga.game_on(self.games, datetime.date.fromtimestamp(it.time), teams)
+
     def refresh(self, targets=None):
         ts = self.win.targets() if targets is None else targets
         have = {}
@@ -252,5 +354,9 @@ class TeamsPanel(QFrame):
             if it.meta_loaded:
                 for name in it.meta['people']:
                     have[name] = have.get(name, 0) + 1
-        for c in self.cols:
-            c.grid.set_state(have, len(ts))
+        if self.refs.isVisibleTo(self):
+            game = self.current_game(ts)
+            if (id(game) if game else None) != self.refs.game_key:
+                self.refs.load(game)
+        for g in [c.grid for c in self.cols] + [self.refs.grid]:
+            g.set_state(have, len(ts))

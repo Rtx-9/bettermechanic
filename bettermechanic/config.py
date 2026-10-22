@@ -30,7 +30,8 @@ def tag_preset(name, names=()):
     for i, n in enumerate(list(names)[:SLOTS]):
         slots[i] = n
     return {'id': new_id(), 'name': name, 'slots': slots, 'caption_tpl': '', 'auto_caption': False, 'keywords': '',
-            'roster': [],   # roster: [{'name', 'number', 'image'}] - any length; slots are the quick keys
+            'roster': [],   # roster: [{'name', 'number', 'image', 'role', 'liiga'}] - any length; slots are the
+                            # quick keys. role: '' for players, else e.g. 'Head coach'; liiga: came from liiga.fi
             'liiga': ''}    # liiga.fi team id when the roster comes from the league
 
 
@@ -50,7 +51,7 @@ DEFAULT_SETTINGS = {
     'seq_digits': 4,
     'date_locale': 'en',
     'lr_tag_mark': 'none',      # what tagged photos also get for Lightroom, see metadata.MARK_CHOICES
-    'liiga_added': False,       # the bundled Liiga teams were added once
+    'liiga_added': False,       # the bundled Liiga teams were added once (liiga_bundle: which snapshot contents)
     'liiga_auto_update': True,  # refresh Liiga rosters from liiga.fi once a day
     'liiga_checked': '',        # date of the last successful refresh
 }
@@ -118,7 +119,8 @@ class Config:
         q.update({k: v for k, v in p.items() if k in q})
         q['slots'] = (list(q['slots']) + [''] * SLOTS)[:SLOTS]
         q['roster'] = [{'name': str(r.get('name', '')).strip(), 'number': str(r.get('number', '') or '').strip(),
-                        'image': str(r.get('image', '') or '').strip()}
+                        'image': str(r.get('image', '') or '').strip(), 'role': str(r.get('role', '') or '').strip(),
+                        'liiga': bool(r.get('liiga'))}
                        for r in (q.get('roster') or []) if isinstance(r, dict) and str(r.get('name', '')).strip()]
         return q
 
@@ -186,11 +188,12 @@ def players(preset):
         name = r.get('name', '').strip()
         if name and name not in seen:
             seen.add(name)
-            out.append({'name': name, 'number': r.get('number', ''), 'image': r.get('image', '')})
+            out.append({'name': name, 'number': r.get('number', ''), 'image': r.get('image', ''),
+                        'role': r.get('role', ''), 'liiga': bool(r.get('liiga'))})
     for name in keys:
         if name not in seen:
             seen.add(name)
-            out.append({'name': name, 'number': '', 'image': ''})
+            out.append({'name': name, 'number': '', 'image': '', 'role': '', 'liiga': False})
     for e in out:
         e['key'] = keys.get(e['name'])
         e['team'] = preset.get('name', '')

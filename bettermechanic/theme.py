@@ -1,8 +1,8 @@
 """Appearance: semantic colours for light and dark mode, system font, style sheet.
 
 Loosely follows Apple's Human Interface Guidelines: system colours, an accent
-colour for selection and default buttons, quiet toolbars, a source-list
-sidebar and an inspector made of grouped sections. The photo preview always
+colour for selection and default buttons, quiet toolbars, a players panel
+and an inspector made of grouped sections. The photo preview always
 stays dark so it never competes with the pictures.
 """
 from __future__ import annotations

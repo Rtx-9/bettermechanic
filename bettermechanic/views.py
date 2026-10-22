@@ -1,17 +1,16 @@
-"""Widgets: contact sheet, filmstrip, loupe, tag-key sidebar, inspector."""
+"""Widgets: contact sheet, filmstrip, loupe, inspector."""
 from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import datetime
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QPoint, QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QListView, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton,
                                QScrollArea, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget)
 
 from . import core, theme
-from .config import key_label
 from .theme import qc
 
 ItemRole = Qt.UserRole + 1
@@ -461,7 +460,7 @@ class Loupe(QWidget):
             self.navigate.emit(-1 if e.angleDelta().y() > 0 else 1)
 
 
-# ----------------------------------------------------------------- sidebar
+# ----------------------------------------------------------------- section headers
 
 def section(text, link=None, fn=None):
     """Section header row; optional trailing text button."""
@@ -480,157 +479,6 @@ def section(text, link=None, fn=None):
         lay.addWidget(b)
     return w
 
-
-class SlotRow(QFrame):
-    clicked = Signal(int)
-    edit = Signal(int)
-
-    def __init__(self, i):
-        super().__init__()
-        self.i = i
-        self.setObjectName('slot')
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(30)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(6, 0, 4, 0)
-        lay.setSpacing(8)
-        self.key = QLabel(key_label(i))
-        self.key.setObjectName('kbd')
-        self.key.setAlignment(Qt.AlignCenter)
-        self.key.setFixedSize(30, 20)
-        self.name = QLabel()
-        self.count = QLabel()
-        self.count.setObjectName('dim')
-        self.btn = QToolButton()
-        self.btn.setText('Edit')
-        self.btn.setObjectName('editslot')
-        self.btn.setToolTip('Rename this key')
-        self.btn.setCursor(Qt.PointingHandCursor)
-        self.btn.clicked.connect(lambda: self.edit.emit(self.i))
-        self.btn.hide()
-        lay.addWidget(self.key)
-        lay.addWidget(self.name, 1)
-        lay.addWidget(self.count)
-        lay.addWidget(self.btn)
-        self._state = None
-
-    def enterEvent(self, e):
-        self.btn.show()
-        self.count.hide()
-
-    def leaveEvent(self, e):
-        self.btn.hide()
-        self.count.show()
-
-    def set(self, name, state, count):
-        self.name.setText(name or 'Empty')
-        self.count.setText(str(count) if count else '')
-        st = state if name else 'empty'
-        if st != self._state:
-            self._state = st
-            self.setProperty('state', st)
-            for w in (self, self.name, self.key, self.count, self.btn):
-                w.style().unpolish(w)
-                w.style().polish(w)
-
-    def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self.clicked.emit(self.i)
-
-
-class KeysPanel(QWidget):
-    def __init__(self, win):
-        super().__init__()
-        self.win = win
-        self.setObjectName('sidebar')
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 6, 12, 14)
-        lay.setSpacing(2)
-        lay.addWidget(section('Tag Preset', 'Edit', win.open_presets))
-        sw = QHBoxLayout()
-        sw.setSpacing(6)
-        self.combo = QComboBox()
-        self.combo.activated.connect(self._pick)
-        self.combo.setToolTip('Active tag preset — P / Shift+P to switch')
-        sw.addWidget(self.combo, 1)
-        lay.addLayout(sw)
-        hint = QLabel('Press P to switch presets')
-        hint.setObjectName('hint')
-        lay.addWidget(hint)
-        self.find_btn = QPushButton('Find Player…')
-        self.find_btn.setObjectName('row')
-        self.find_btn.setToolTip('Search the whole roster by name or number and tag with Enter (F)')
-        self.find_btn.clicked.connect(win.open_picker)
-        self.roster_btn = QPushButton('Edit Roster…')
-        self.roster_btn.setObjectName('row')
-        self.roster_btn.setToolTip('All players of this preset, with numbers and photos')
-        self.roster_btn.clicked.connect(lambda: win.open_roster())
-        lay.addSpacing(4)
-        lay.addWidget(self.find_btn)
-        lay.addWidget(self.roster_btn)
-        self.rows = []
-        for i in range(20):
-            if i in (0, 10):
-                g = QLabel('Keys 1 – 0' if i == 0 else 'Shift + 1 – 0')
-                g.setObjectName('group')
-                lay.addWidget(g)
-            r = SlotRow(i)
-            r.clicked.connect(win.toggle_slot)
-            r.edit.connect(win.rename_slot)
-            self.rows.append(r)
-            lay.addWidget(r)
-        clear = QPushButton('Clear Players')
-        clear.setObjectName('plain')
-        clear.setToolTip('Remove every player from the selected photos (Backspace)')
-        clear.clicked.connect(lambda: win.clear_people())
-        lay.addWidget(clear)
-        lay.addWidget(section('Metadata Presets', 'Edit', win.open_meta_presets))
-        self.meta_box = QVBoxLayout()
-        self.meta_box.setSpacing(0)
-        lay.addLayout(self.meta_box)
-        lay.addStretch()
-
-    def _pick(self, i):
-        self.win.cfg.active_tag = self.win.cfg.tag_presets[i]['id']
-        self.win.preset_changed()
-
-    def refresh_presets(self):
-        cfg = self.win.cfg
-        self.combo.blockSignals(True)
-        self.combo.clear()
-        for p in cfg.tag_presets:
-            self.combo.addItem(p['name'] or 'Untitled')
-        self.combo.setCurrentIndex(next(i for i, p in enumerate(cfg.tag_presets) if p['id'] == cfg.tag['id']))
-        self.combo.blockSignals(False)
-        self.find_btn.setIcon(self.win.icon('search'))
-        self.roster_btn.setIcon(self.win.icon('tag'))
-        n = len([r for r in cfg.tag.get('roster') or []])
-        self.find_btn.setText('Find Player…' + ('' if not n else f'   ({n} in roster)'))
-        while self.meta_box.count():
-            w = self.meta_box.takeAt(0).widget()
-            if w:
-                w.setParent(None)
-                w.deleteLater()
-        for mp in cfg.meta_presets:
-            b = QPushButton(mp['name'])
-            b.setObjectName('row')
-            b.setIcon(self.win.icon('text'))
-            b.setToolTip('Apply this metadata preset to the selected photos')
-            b.clicked.connect(lambda _=False, pid=mp['id']: self.win.apply_meta_preset(pid))
-            self.meta_box.addWidget(b)
-
-    def refresh(self, targets, counts):
-        slots = self.win.cfg.tag['slots']
-        n = len(targets)
-        for i, r in enumerate(self.rows):
-            name = slots[i].strip()
-            have = sum(1 for it in targets if name in it.meta['people']) if name and n <= 2000 else 0
-            state = 'on' if n and have == n else 'part' if have else 'off'
-            r.set(name, state, counts.get(name, 0))
-
-
-# --------------------------------------------------------------- inspector
 
 class EditBox(QPlainTextEdit):
     committed = Signal()
