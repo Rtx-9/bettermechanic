@@ -24,8 +24,14 @@ PLUGIN = lightroom.plugin_source()
 STUBS = r'''
 STUB = { log = {}, kw = {}, written = 0, dialogs = {} }
 local function path_child(a, b) return a .. '/' .. b end
+os.getenv = function(k) return STUB.env and STUB.env[k] end
 local modules = {
-  LrPathUtils = { child = path_child, getStandardFilePath = function() return STUB.appdata end },
+  LrPathUtils = {
+    child = path_child,
+    getStandardFilePath = function(kind) return kind == 'appData' and STUB.lrAppData or '/home' end,
+    leafName = function(p) return p:match('([^/]+)$') end,
+    parent = function(p) return p:match('^(.*)/[^/]+$') or p end,
+  },
   LrFileUtils = {
     exists = function(p) return STUB.files[p] ~= nil end,
     readFile = function(p) return STUB.files[p] end,
@@ -117,7 +123,9 @@ class TestExport(Base):
         with open(os.path.join(out, 'players.txt'), encoding='utf-8') as fh:
             lines = fh.read().splitlines()
         self.assertEqual(lines[0], 'v\t1')
+        self.assertEqual(lines[1], 'd\t\t')                                    # no teams chosen in the app yet
         self.assertIn('\t'.join(['t', self.cfg.tag_presets[0]['id'], 'Home', '1:home', 'Home, Liiga']), lines)
+        self.assertTrue(os.path.exists(os.path.join(out, 'img', 'h_staff.png')))
         self.assertTrue(any(ln.startswith('p\tCc Coach\t\tPäävalmentaja\t') for ln in lines))
         self.assertIn('g\t2026-10-21\t1:away\t1:home\tRef 4|Ref 1', lines)
         pic = next(ln for ln in lines if ln.startswith('p\tAa Bee')).split('\t')[4]
@@ -127,7 +135,12 @@ class TestExport(Base):
         self.assertEqual(lightroom.export(self.cfg, os.path.join(self.tmp, 'avatars'), fetch_missing=False)[1], 0)
         self.cfg.tag_presets[1]['roster'] = []                                # pictures nobody uses are removed
         lightroom.export(self.cfg, os.path.join(self.tmp, 'avatars'), fetch_missing=False)
-        self.assertEqual(len(os.listdir(os.path.join(out, 'img'))), 8 + 1)   # 8 people + blank.png
+        self.assertEqual(len(os.listdir(os.path.join(out, 'img'))), 8 + 1 + 4)   # 8 people, blank, 4 headings
+        self.cfg.settings['team_panel'] = [self.cfg.tag_presets[1]['id'], self.cfg.tag_presets[0]['id']]
+        lightroom.export(self.cfg, os.path.join(self.tmp, 'avatars'), fetch_missing=False)
+        with open(os.path.join(out, 'players.txt'), encoding='utf-8') as fh:
+            self.assertEqual(fh.read().splitlines()[1], f'd\t{self.cfg.settings["team_panel"][0]}\t'
+                                                        f'{self.cfg.settings["team_panel"][1]}')
 
     def test_install(self):
         with mock.patch.object(lightroom, 'modules_dir', return_value=os.path.join(self.tmp, 'Modules')):
@@ -150,6 +163,7 @@ class TestPluginLua(Base):
         folder = lightroom.data_dir(self.cfg).replace('\\', '/')
         stub = self.lua.globals().STUB
         stub.appdata = os.path.dirname(os.path.dirname(folder))
+        stub.env = self.lua.table_from({'APPDATA': stub.appdata})
         files = self.lua.table()
         with open(os.path.join(folder, 'players.txt'), encoding='utf-8') as fh:
             files[f'{stub.appdata}/BetterMechanic/lightroom/players.txt'] = fh.read()
@@ -167,6 +181,16 @@ class TestPluginLua(Base):
                 self.assertTrue(ok, f'{name}: {err}')
         info = self.lua.eval(f'dofile([[{PLUGIN}/Info.lua]])')
         self.assertEqual(info.LrLibraryMenuItems[1].file, 'Players.lua')
+
+    def test_data_folder(self):
+        data = self.lua.eval('require("Data")')
+        self.assertEqual(data.folder(), self.lua.globals().STUB.appdata + '/BetterMechanic/lightroom')
+        stub = self.lua.globals().STUB
+        stub.env = None                     # no APPDATA: Lightroom's "appData" is …/Roaming/Adobe/Lightroom
+        stub.lrAppData = 'C:/Users/x/AppData/Roaming/Adobe/Lightroom'
+        self.assertEqual(data.folder(), 'C:/Users/x/AppData/Roaming/BetterMechanic/lightroom')
+        stub.lrAppData = None               # a Mac: ~/Library/Application Support
+        self.assertEqual(data.folder(), '/home/Library/Application Support/BetterMechanic/lightroom')
 
     def test_data(self):
         d = self.data
@@ -189,18 +213,25 @@ class TestPluginLua(Base):
         counts = self.lua.table_from({'Aa Bee': 2, 'Dd Away': 1})
         game = model.gameFor(d, '2026-10-21', '1:home', '1:away')
         model.fillAll(props, shown, d, d.teams[1], d.teams[2], counts, 2, game)
-        self.assertEqual(props['ap_1_title'], '✓ #29 Bee')
-        self.assertEqual(props['as_1_title'], 'Coach')
-        self.assertEqual(props['as_1_tip'], 'Cc Coach  ·  Päävalmentaja')
-        self.assertEqual(props['bp_1_title'], '• #7 Away')
-        self.assertFalse(props['ap_2_vis'])
-        self.assertTrue(props['ap_row_1'])
-        self.assertFalse(props['ap_row_2'])
-        self.assertEqual(props['ap_head'], 'PLAYERS   1')
-        self.assertEqual([props[f'rg_{i}_title'] for i in (1, 2)], ['4', '1'])       # this game's refs first
-        self.assertEqual(props['rr_1_title'], '0')
-        self.assertEqual(props['rl_1_title'], '3')
-        self.assertEqual(shown['rg_1'].name, 'Ref 4')
+        # home: player, Staff heading, coach, then hidden tiles
+        self.assertEqual(props['a_1_title'], '✓ #29 Bee')
+        self.assertTrue(props['a_2_vis'])
+        self.assertFalse(props['a_2_btn'])                                     # a heading: picture only
+        self.assertTrue(props['a_2_img'].endswith('h_staff.png'))
+        self.assertIsNone(shown['a_2'])
+        self.assertEqual((props['a_3_title'], props['a_3_tip']), ('Coach', 'Cc Coach  ·  Päävalmentaja'))
+        self.assertFalse(props['a_4_vis'] or props['a_4_btn'])
+        self.assertTrue(props['a_4_img'].endswith('blank.png'))
+        self.assertEqual(props['b_1_title'], '• #7 Away')
+        self.assertFalse(props['b_2_vis'])                                     # no staff, no heading
+        # referees: THIS GAME heading, the game's two (as the game lists them), REFEREES, LINESMEN
+        titles = [props[f'r_{i}_title'] for i in range(1, 11)]
+        self.assertEqual(titles, ['', '4', '1', '', '0', '2', '', '3', '5', ''])
+        self.assertTrue(props['r_1_img'].endswith('h_game.png'))
+        self.assertTrue(props['r_7_img'].endswith('h_linesmen.png'))
+        self.assertEqual(shown['r_2'].name, 'Ref 4')
+        model.fillAll(props, shown, d, d.teams[1], None, counts, 2, None)     # no game: no THIS GAME heading
+        self.assertTrue(props['r_1_img'].endswith('h_referees.png'))
 
     def test_tagging(self):
         lua = self.lua
@@ -232,8 +263,8 @@ class TestPluginLua(Base):
         self.assertEqual(dialog.contents.kind, 'column')
         props = dialog.contents.bind_to_object
         self.assertEqual(props.teamA, self.cfg.tag_presets[0]['id'])
-        self.assertEqual(props['ap_1_title'], '#29 Bee')
-        self.assertEqual(props['rg_1_title'], '4')                               # the photo's game
+        self.assertEqual(props['a_1_title'], '#29 Bee')
+        self.assertEqual(props['r_2_title'], '4')                                 # the photo's game
         # find the button for Aa Bee and press it
         buttons = lua.eval('''function(root)
             local found = {}
@@ -245,14 +276,30 @@ class TestPluginLua(Base):
             walk(root)
             return found
         end''')(dialog.contents)
-        buttons['ap_1_title'].action()
+        buttons['a_1_title'].action()
         self.assertTrue(photos[1].kws['Aa Bee'])
-        self.assertEqual(props['ap_1_title'], '✓ #29 Bee')
+        self.assertEqual(props['a_1_title'], '✓ #29 Bee')
         self.assertIn('Tagged Aa Bee on 1 photo', props.status)
         props.teamB = ''
         props.observers['teamB']()
-        self.assertFalse(props['bp_1_vis'])
+        self.assertFalse(props['b_1_vis'])
         self.assertEqual(stub.prefs.teamB, '')
+        props.showRefs = False                                                    # referees off: column empty
+        props.observers['showRefs']()
+        self.assertFalse(props['r_2_btn'])
+
+    def test_window_opens_with_the_apps_teams(self):
+        lua = self.lua
+        self.cfg.settings['team_panel'] = [self.cfg.tag_presets[1]['id'], self.cfg.tag_presets[0]['id']]
+        lightroom.export(self.cfg, os.path.join(self.tmp, 'avatars'), fetch_missing=False)
+        with open(os.path.join(lightroom.data_dir(self.cfg), 'players.txt'), encoding='utf-8') as fh:
+            stub = lua.globals().STUB
+            stub.files[f'{stub.appdata}/BetterMechanic/lightroom/players.txt'] = fh.read()
+        stub.catalog = lua.eval('makeCatalog({})')
+        lua.execute(f'dofile([[{PLUGIN}/Players.lua]])')
+        props = stub.dialog.contents.bind_to_object
+        self.assertEqual((props.teamA, props.teamB), tuple(self.cfg.settings['team_panel']))
+        self.assertEqual(props['a_1_title'], '#7 Away')
 
 
 if __name__ == '__main__':

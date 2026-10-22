@@ -934,7 +934,8 @@ class MainWindow(QMainWindow):
         if self.lr_thread is not None and self.lr_thread.is_alive():
             self.lr_timer.start()                   # try again when this one is done
             return
-        snap = SimpleNamespace(tag_presets=copy.deepcopy(self.cfg.tag_presets), path=self.cfg.path)
+        snap = SimpleNamespace(tag_presets=copy.deepcopy(self.cfg.tag_presets), path=self.cfg.path,
+                               settings={'team_panel': list(self.cfg.settings.get('team_panel') or [])})
         avatar_dir = self.avatars.dir
 
         def run():

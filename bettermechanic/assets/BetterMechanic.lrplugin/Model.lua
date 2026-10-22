@@ -1,21 +1,17 @@
 --[[ What the window shows: which person sits in which tile, the referees of the photo's game, the marks for
 people already on the selected photos. Plain Lua with no Lightroom calls, so it can be tested on its own.
 
-Lightroom windows can't add or remove controls once open, so every group has a fixed number of tiles and the
-property table says what each one shows: <group>_<i>_vis / _img / _title / _tip, plus <group>_head and
-<group>_any for the group heading and <group>_row_<r> for each row of tiles.
+Lightroom windows can't add or remove controls once open, and hidden controls keep their space, so each side is
+one run of tiles filled from the start: players, a "Staff" heading tile, staff (the referees: this game's,
+referees, linesmen). The unused tiles at the end stay hidden. The property table says what each tile shows:
+<side>_<i>_vis (picture shown), _img, _btn (button shown), _title, _tip.
 ]]
 
 local Model = {}
 
 Model.PER_ROW = 4
 Model.REF_ROW = 2
-Model.GROUPS = {
-	a = { { key = 'ap', title = 'Players', slots = 48 }, { key = 'as', title = 'Staff', slots = 32 } },
-	b = { { key = 'bp', title = 'Players', slots = 48 }, { key = 'bs', title = 'Staff', slots = 32 } },
-	r = { { key = 'rg', title = 'This game', slots = 6 }, { key = 'rr', title = 'Referees', slots = 40 },
-		{ key = 'rl', title = 'Linesmen', slots = 40 } },
-}
+Model.SLOTS = { a = 84, b = 84, r = 72 }
 
 function Model.lastName(name)
 	return name:match('(%S+)%s*$') or name
@@ -47,14 +43,6 @@ function Model.mark(entry, counts, n)
 	return ''
 end
 
-function Model.teamGroups(team)
-	local players, staff = {}, {}
-	for _, e in ipairs(team and team.people or {}) do
-		if e.role == '' then players[#players + 1] = e else staff[#staff + 1] = e end
-	end
-	return players, staff
-end
-
 -- the game on `day` between the teams shown (either may be missing), or nil
 function Model.gameFor(data, day, liigaA, liigaB)
 	if not day or day == '' then return nil end
@@ -75,12 +63,40 @@ function Model.gameFor(data, day, liigaA, liigaB)
 	return nil
 end
 
-function Model.refGroups(team, game)
+local function append(seq, list)
+	for _, e in ipairs(list) do seq[#seq + 1] = e end
+end
+
+local function heading(seq, data, name, list)
+	if #list > 0 then
+		seq[#seq + 1] = { heading = name, image = data.headings[name] }
+		append(seq, list)
+	end
+end
+
+-- a team's tiles: players, then a Staff heading and the staff
+function Model.teamSequence(data, team)
+	local players, staff = {}, {}
+	for _, e in ipairs(team and team.people or {}) do
+		if e.role == '' then players[#players + 1] = e else staff[#staff + 1] = e end
+	end
+	local seq = {}
+	append(seq, players)
+	if #players > 0 then
+		heading(seq, data, 'staff', staff)
+	else
+		append(seq, staff)
+	end
+	return seq
+end
+
+-- the referees' tiles: this game's officials first (as the game lists them), then referees, then linesmen
+function Model.refSequence(data, game)
 	local here, first, refs, lines = {}, {}, {}, {}
 	if game then
 		for i, name in ipairs(game.refs) do here[name] = i end
 	end
-	for _, e in ipairs(team and team.people or {}) do
+	for _, e in ipairs(data.referees and data.referees.people or {}) do
 		if here[e.name] then
 			first[#first + 1] = e
 		elseif e.role == 'Linesman' then
@@ -89,49 +105,33 @@ function Model.refGroups(team, game)
 			refs[#refs + 1] = e
 		end
 	end
-	table.sort(first, function(x, y) return here[x.name] < here[y.name] end)   -- as the game lists them
-	return first, refs, lines
+	table.sort(first, function(x, y) return here[x.name] < here[y.name] end)
+	local seq = {}
+	heading(seq, data, 'game', first)
+	heading(seq, data, 'referees', refs)
+	heading(seq, data, 'linesmen', lines)
+	return seq
 end
 
--- put `entries` into the tiles of group `g`; shown[<group>_<i>] = entry for the click handler
-function Model.fill(props, shown, g, entries, perRow, counts, n, blank)
-	local count = math.min(#entries, g.slots)
-	for i = 1, g.slots do
-		local k = g.key .. '_' .. i
-		local e = entries[i]
-		shown[k] = e
-		if e then
-			props[k .. '_vis'] = true
-			props[k .. '_img'] = e.image or blank
-			props[k .. '_title'] = Model.mark(e, counts, n) .. Model.label(e)
-			props[k .. '_tip'] = Model.tooltip(e)
-		else
-			props[k .. '_vis'] = false
-			props[k .. '_img'] = blank
-			props[k .. '_title'] = ''
-			props[k .. '_tip'] = ''
-		end
+-- put a sequence into the tiles of one side; shown[<side>_<i>] = entry for the click handler
+function Model.fill(props, shown, side, seq, counts, n, blank)
+	for i = 1, Model.SLOTS[side] do
+		local k = side .. '_' .. i
+		local e = seq[i]
+		shown[k] = e and not e.heading and e or nil
+		props[k .. '_vis'] = e ~= nil
+		props[k .. '_img'] = e and e.image or blank
+		props[k .. '_btn'] = e ~= nil and not e.heading
+		props[k .. '_title'] = (e and not e.heading) and (Model.mark(e, counts, n) .. Model.label(e)) or ''
+		props[k .. '_tip'] = (e and not e.heading) and Model.tooltip(e) or ''
 	end
-	for r = 1, math.ceil(g.slots / perRow) do
-		props[g.key .. '_row_' .. r] = (r - 1) * perRow < count
-	end
-	props[g.key .. '_any'] = count > 0
-	props[g.key .. '_head'] = string.upper(g.title) .. '   ' .. count
 end
 
 -- everything in the window for these teams, this selection and this game
 function Model.fillAll(props, shown, data, teamA, teamB, counts, n, game)
-	local groups = Model.GROUPS
-	local p, s = Model.teamGroups(teamA)
-	Model.fill(props, shown, groups.a[1], p, Model.PER_ROW, counts, n, data.blank)
-	Model.fill(props, shown, groups.a[2], s, Model.PER_ROW, counts, n, data.blank)
-	p, s = Model.teamGroups(teamB)
-	Model.fill(props, shown, groups.b[1], p, Model.PER_ROW, counts, n, data.blank)
-	Model.fill(props, shown, groups.b[2], s, Model.PER_ROW, counts, n, data.blank)
-	local first, refs, lines = Model.refGroups(data.referees, game)
-	Model.fill(props, shown, groups.r[1], first, Model.REF_ROW, counts, n, data.blank)
-	Model.fill(props, shown, groups.r[2], refs, Model.REF_ROW, counts, n, data.blank)
-	Model.fill(props, shown, groups.r[3], lines, Model.REF_ROW, counts, n, data.blank)
+	Model.fill(props, shown, 'a', Model.teamSequence(data, teamA), counts, n, data.blank)
+	Model.fill(props, shown, 'b', Model.teamSequence(data, teamB), counts, n, data.blank)
+	Model.fill(props, shown, 'r', Model.refSequence(data, game), counts, n, data.blank)
 end
 
 return Model

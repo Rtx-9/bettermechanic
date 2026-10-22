@@ -16,43 +16,32 @@ local Tagging = require 'Tagging'
 local bind = LrView.bind
 local TILE_W, PIC = 104, 72
 
-local function tile(f, key, i, onClick)
-	local k = key .. '_' .. i
+-- one tile: picture and button. Lightroom only hides controls themselves (not rows or columns), so each has
+-- its own visibility; a heading tile shows just its picture.
+local function tile(f, k, onClick)
 	return f:column {
-		visible = bind(k .. '_vis'),
 		width = TILE_W,
 		spacing = 2,
-		place_horizontal = 0.5,
-		f:picture { value = bind(k .. '_img'), width = PIC, height = PIC, place_horizontal = 0.5 },
+		f:picture { value = bind(k .. '_img'), visible = bind(k .. '_vis'), width = PIC, height = PIC,
+			place_horizontal = 0.5 },
 		f:push_button {
-			title = bind(k .. '_title'), tooltip = bind(k .. '_tip'), width = TILE_W - 4, size = 'small',
-			action = function() onClick(k) end,
+			title = bind(k .. '_title'), tooltip = bind(k .. '_tip'), visible = bind(k .. '_btn'),
+			width = TILE_W - 4, size = 'small', action = function() onClick(k) end,
 		},
 	}
 end
 
-local function group(f, g, perRow, onClick)
-	local col = { spacing = 6 }
-	col[#col + 1] = f:static_text { title = bind(g.key .. '_head'), visible = bind(g.key .. '_any'),
-		font = '<system/small/bold>' }
-	local row
-	for i = 1, g.slots do
+local function side(f, key, perRow, width, height, onClick)
+	local col, row = { spacing = 6 }, nil
+	for i = 1, Model.SLOTS[key] do
 		if (i - 1) % perRow == 0 then
-			row = { spacing = 4, visible = bind(g.key .. '_row_' .. (math.floor((i - 1) / perRow) + 1)) }
+			row = { spacing = 4 }
 			col[#col + 1] = row
 		end
-		row[#row + 1] = tile(f, g.key, i, onClick)
+		row[#row + 1] = tile(f, key .. '_' .. i, onClick)
 	end
-	for j = 2, #col do
+	for j = 1, #col do
 		col[j] = f:row(col[j])
-	end
-	return f:column(col)
-end
-
-local function side(f, groups, perRow, width, height, onClick)
-	local col = { spacing = 12 }
-	for _, g in ipairs(groups) do
-		col[#col + 1] = group(f, g, perRow, onClick)
 	end
 	return f:scrolled_view { width = width, height = height, horizontal_scroller = false, f:column(col) }
 end
@@ -85,15 +74,25 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 	local props = LrBinding.makePropertyTable(context)
 	local shown, state = {}, { counts = {}, n = 0, game = nil, selKey = nil, sinceFull = 0 }
 
+	-- the teams last used here, else the ones chosen in the app, else the first team
 	local first = teamItems(data, false)[1]
-	props.teamA = data.byId[prefs.teamA or ''] and prefs.teamA or (first and first.value or '')
-	props.teamB = (prefs.teamB == '' or data.byId[prefs.teamB or '']) and prefs.teamB or ''
+	local function pick(...)
+		for _, id in ipairs({ ... }) do
+			if id == '' or data.byId[id] then return id end
+		end
+	end
+	props.teamA = pick(prefs.teamA or '-', data.defaults[1], first and first.value or '') or ''
+	if props.teamA == '' and first then props.teamA = first.value end
+	props.teamB = pick(prefs.teamB or '-', data.defaults[2], '')
 	props.showRefs = data.referees ~= nil and prefs.showRefs ~= false
 	props.status = 'Select photos in Lightroom, then click a person.'
 
 	local function redraw()
 		Model.fillAll(props, shown, data, data.byId[props.teamA], data.byId[props.teamB], state.counts, state.n,
 			state.game)
+		if not props.showRefs then
+			Model.fill(props, shown, 'r', {}, state.counts, state.n, data.blank)
+		end
 	end
 
 	-- selection, its keywords and its game; redraw only when something changed
@@ -128,9 +127,13 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 		end)
 	end
 
-	props:addObserver('teamA', function() prefs.teamA = props.teamA; refresh(true) end)
-	props:addObserver('teamB', function() prefs.teamB = props.teamB; refresh(true) end)
-	props:addObserver('showRefs', function() prefs.showRefs = props.showRefs end)
+	-- observers run outside any task, and Lightroom only lets tasks read the catalog
+	local function later(fn)
+		return function() LrTasks.startAsyncTask(fn) end
+	end
+	props:addObserver('teamA', later(function() prefs.teamA = props.teamA; refresh(true) end))
+	props:addObserver('teamB', later(function() prefs.teamB = props.teamB; refresh(true) end))
+	props:addObserver('showRefs', later(function() prefs.showRefs = props.showRefs; redraw() end))
 
 	local f = LrView.osFactory()
 	local contents = f:column {
@@ -147,12 +150,9 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 		},
 		f:row {
 			spacing = 10,
-			side(f, Model.GROUPS.a, Model.PER_ROW, TILE_W * Model.PER_ROW + 40, 560, onClick),
-			side(f, Model.GROUPS.b, Model.PER_ROW, TILE_W * Model.PER_ROW + 40, 560, onClick),
-			f:view {
-				visible = bind('showRefs'),
-				side(f, Model.GROUPS.r, Model.REF_ROW, TILE_W * Model.REF_ROW + 40, 560, onClick),
-			},
+			side(f, 'a', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, 560, onClick),
+			side(f, 'b', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, 560, onClick),
+			side(f, 'r', Model.REF_ROW, TILE_W * Model.REF_ROW + 40, 560, onClick),
 		},
 		f:static_text { title = bind('status'), fill_horizontal = 1 },
 	}

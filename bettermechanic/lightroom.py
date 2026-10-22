@@ -115,6 +115,23 @@ def render(entry, cached, dest):
     im.resize((SIZE, SIZE), Image.Resampling.LANCZOS).save(dest)
 
 
+HEADINGS = {'staff': 'STAFF', 'game': 'THIS\nGAME', 'referees': 'REFEREES', 'linesmen': 'LINESMEN'}
+
+
+def render_heading(text, dest):
+    """A tile-sized heading ("STAFF") placed in the run of people: grey, readable on light and dark windows."""
+    s = SIZE * 2
+    im = Image.new('RGBA', (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    f = _font(int(s * 0.17), bold=True)
+    box = d.multiline_textbbox((0, 0), text, font=f, align='center', spacing=4)
+    w, h = box[2] - box[0], box[3] - box[1]
+    d.multiline_text(((s - w) / 2 - box[0], (s - h) / 2 - box[1] - 6), text, font=f, fill=(128, 128, 134, 255),
+                     align='center', spacing=4)
+    d.line((s * 0.2, (s + h) / 2 + 8, s * 0.8, (s + h) / 2 + 8), fill=(128, 128, 134, 255), width=3)
+    im.resize((SIZE, SIZE), Image.Resampling.LANCZOS).save(dest)
+
+
 def export(cfg, avatar_dir, fetch_missing=True, workers=4):
     """Write players.txt and the pictures for the plugin. Returns (people, pictures drawn)."""
     out = data_dir(cfg)
@@ -124,6 +141,13 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
     if not os.path.exists(blank):
         Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0)).save(blank)
     lines, jobs, keep = ['v\t1'], [], {'blank.png'}
+    chosen = (list(getattr(cfg, 'settings', {}).get('team_panel') or []) + ['', ''])[:2]
+    lines.append('\t'.join(['d', *chosen]))           # the teams picked in the app open first in Lightroom
+    for key, text in HEADINGS.items():
+        fname = f'h_{key}.png'
+        keep.add(fname)
+        if not os.path.exists(os.path.join(img_dir, fname)):
+            render_heading(text, os.path.join(img_dir, fname))
     for p in cfg.tag_presets:
         lines.append('\t'.join(['t', p['id'], _clean(p['name']), p.get('liiga', ''), _clean(p.get('keywords', ''))]))
         for e in players(p):

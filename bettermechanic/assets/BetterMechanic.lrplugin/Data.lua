@@ -1,6 +1,7 @@
 --[[ The teams, people, pictures and games that the BetterMechanic app writes for this plugin.
 
 players.txt, one tab-separated record per line:
+  d  <first team's preset id>  <second team's preset id>     (the teams chosen in the app)
   t  <preset id>  <team name>  <liiga id>  <keywords added when tagging>
   p  <name>  <number>  <role, empty for players>  <picture file in img/>
   g  <date YYYY-MM-DD>  <home liiga id>  <away liiga id>  <referee|referee|...>
@@ -19,21 +20,40 @@ local function split(line, sep)
 	return out
 end
 
-function Data.folder()
-	local ok, base = pcall(LrPathUtils.getStandardFilePath, 'appData')
-	if not ok or not base or base == '' then
-		base = os.getenv and os.getenv('APPDATA')
+-- the folder applications keep their data in (AppData\Roaming, ~/Library/Application Support)
+function Data.base()
+	local env = os and os.getenv and os.getenv('APPDATA')
+	if env and env ~= '' then
+		return env
 	end
-	return LrPathUtils.child(LrPathUtils.child(base, 'BetterMechanic'), 'lightroom')
+	-- Lightroom's "appData" is its own folder (…\Adobe\Lightroom): the one we want holds Adobe
+	local ok, p = pcall(LrPathUtils.getStandardFilePath, 'appData')
+	while ok and p and LrPathUtils.leafName(p) ~= 'Adobe' and LrPathUtils.parent(p) and LrPathUtils.parent(p) ~= p do
+		p = LrPathUtils.parent(p)
+	end
+	if ok and p and LrPathUtils.leafName(p) == 'Adobe' then
+		return LrPathUtils.parent(p)
+	end
+	return LrPathUtils.child(LrPathUtils.child(LrPathUtils.getStandardFilePath('home'), 'Library'), 'Application Support')
+end
+
+function Data.folder()
+	return LrPathUtils.child(LrPathUtils.child(Data.base(), 'BetterMechanic'), 'lightroom')
 end
 
 function Data.parse(text, folder)
 	local img = LrPathUtils.child(folder, 'img')
-	local data = { teams = {}, byId = {}, games = {}, blank = LrPathUtils.child(img, 'blank.png') }
+	local data = { teams = {}, byId = {}, games = {}, blank = LrPathUtils.child(img, 'blank.png'), headings = {},
+		defaults = { '', '' } }
+	for _, h in ipairs({ 'staff', 'game', 'referees', 'linesmen' }) do
+		data.headings[h] = LrPathUtils.child(img, 'h_' .. h .. '.png')
+	end
 	local team
 	for line in text:gmatch('[^\r\n]+') do
 		local f = split(line, '\t')
-		if f[1] == 't' then
+		if f[1] == 'd' then
+			data.defaults = { f[2] or '', f[3] or '' }
+		elseif f[1] == 't' then
 			team = { id = f[2], name = f[3] or '', liiga = f[4] or '', keywords = f[5] or '', people = {} }
 			data.teams[#data.teams + 1] = team
 			data.byId[team.id] = team
