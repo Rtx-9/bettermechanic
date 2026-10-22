@@ -734,6 +734,8 @@ HELP = """
 <tr><td><b>P / Shift+P</b></td><td>Next / previous tag preset (e.g. Hockey ↔ Soccer)</td></tr>
 <tr><td><b>F</b> (or <b>/</b>)</td><td>Player picker: type a name or number, arrows or scroll to choose, <b>Enter</b> tags
 (<b>Shift+Enter</b> tags and keeps it open, <b>Tab</b> searches all presets)</td></tr>
+<tr><td><b>B</b></td><td>Show or hide the players panel: two teams side by side, click a player to tag or untag
+the selected photos</td></tr>
 <tr><td><b>Backspace</b></td><td>Remove all players from the selected photos</td></tr>
 <tr><td><b>T</b></td><td>Tag / untag (pick)</td></tr>
 <tr><td><b>X</b></td><td>Reject / unreject</td></tr>

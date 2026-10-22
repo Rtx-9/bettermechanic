@@ -18,6 +18,7 @@ from . import core, icons, liiga, theme
 from .avatars import AvatarStore
 from .config import key_label
 from .picker import PlayerPicker, RosterEditor
+from .teams import TeamsPanel
 from .dialogs import CopyDialog, HelpDialog, MetaPresets, PresetBoard, SettingsDialog
 from .views import Filmstrip, GridView, InfoPanel, KeysPanel, Loupe, PhotoModel, PixCache, ThumbDelegate
 from .workers import Bus, CopyJob, Loader, Saver
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         if liiga.due(cfg):
             QTimer.singleShot(4000, lambda: self.update_liiga(quiet=True))
         self.keys.refresh_presets()
+        self.teams.reload()
         self.refresh_panels()
         self.update_status()
         geo = cfg.window.get('geometry')
@@ -206,6 +208,9 @@ class MainWindow(QMainWindow):
         self._search_timer = QTimer(self, singleShot=True, interval=250, timeout=self.apply_view)
         self.search.textChanged.connect(lambda _: self._search_timer.start())
         tb.addWidget(self.search)
+        self.tb_teams = self._tool(tb, 'people', 'Players', self.toggle_teams,
+                                   'Show or hide the players of two teams to tag by clicking (B)', label=False,
+                                   checkable=True)
         self._tool(tb, 'tag', 'Tag Presets', self.open_presets, 'Tag presets: player keys', label=False)
         self._tool(tb, 'text', 'Metadata Presets', self.open_meta_presets, 'Metadata presets (Ctrl+M)', label=False)
         self._tool(tb, 'gear', 'Settings', lambda: SettingsDialog(self).exec(), 'Settings (Ctrl+,)', label=False)
@@ -245,7 +250,18 @@ class MainWindow(QMainWindow):
         self.banner.hide()
         cl.addWidget(self.banner)
         self.stack = QStackedWidget()
-        cl.addWidget(self.stack, 1)
+        self.vsplit = QSplitter(Qt.Vertical)
+        self.vsplit.setHandleWidth(1)
+        self.vsplit.setChildrenCollapsible(False)
+        self.vsplit.addWidget(self.stack)
+        self.teams = TeamsPanel(self)
+        self.teams.setMinimumHeight(120)
+        self.vsplit.addWidget(self.teams)
+        self.vsplit.setStretchFactor(0, 1)
+        self.vsplit.setSizes(self.cfg.window.get('teams_split') or [540, 330])
+        self.teams.setVisible(bool(self.cfg.settings.get('teams_visible', True)))
+        self.tb_teams.setChecked(bool(self.cfg.settings.get('teams_visible', True)))
+        cl.addWidget(self.vsplit, 1)
 
         self.empty = self._empty_page()
         self.stack.addWidget(self.empty)
@@ -329,6 +345,14 @@ class MainWindow(QMainWindow):
     def toggle_inspector(self):
         self.info.setVisible(not self.info.isVisible())
         self.tb_inspector.setChecked(self.info.isVisible())
+
+    def toggle_teams(self):
+        show = not self.cfg.settings.get('teams_visible', True)
+        self.cfg.settings['teams_visible'] = show
+        self.teams.setVisible(show)
+        self.tb_teams.setChecked(show)
+        if show:
+            self.teams.refresh()
 
     def _empty_page(self):
         w = QWidget()
@@ -751,8 +775,8 @@ class MainWindow(QMainWindow):
         if ts and self.cfg.settings.get('auto_advance') and len(ts) == 1:
             self.move(1)
 
-    def after_people(self, it, added):
-        p = self.cfg.tag
+    def after_people(self, it, added, preset=None):
+        p = preset or self.cfg.tag
         if added and p.get('keywords'):
             it.meta['keywords'] = core.M.uniq(it.meta['keywords'] + core.split_list(p['keywords']))
         if p.get('auto_caption') and p.get('caption_tpl'):
@@ -766,8 +790,11 @@ class MainWindow(QMainWindow):
             return
         self.toggle_name(name)
 
-    def toggle_name(self, name):
-        """Add `name` to the target photos, or remove it if every target already has it."""
+    def toggle_name(self, name, preset=None):
+        """Add `name` to the target photos, or remove it if every target already has it.
+
+        preset: the team the player was picked from (its keywords and caption apply); default the active one.
+        """
         state = {}
 
         def fn(ts):
@@ -779,7 +806,7 @@ class MainWindow(QMainWindow):
                         ppl.remove(name)
                 elif name not in ppl:
                     ppl.append(name)
-                self.after_people(it, not state['rm'])
+                self.after_people(it, not state['rm'], preset)
 
         ts = self.edit(fn)
         if ts:
@@ -885,6 +912,7 @@ class MainWindow(QMainWindow):
     def preset_changed(self, quiet=False):
         self.cfg.save()
         self.keys.refresh_presets()
+        self.teams.reload()
         self.panels_later()
         self.update_status()
         if not quiet:
@@ -978,6 +1006,8 @@ class MainWindow(QMainWindow):
         counts = Counter(p for it in self.items if it.meta_loaded for p in it.meta['people'])
         self.keys.refresh(ts, counts)
         self.info.refresh(ts[:300])
+        if self.teams.isVisible():
+            self.teams.refresh(ts)
 
     def update_status(self):
         n, shown = len(self.items), len(self.model.items)
@@ -1074,6 +1104,8 @@ class MainWindow(QMainWindow):
             HelpDialog(self).exec()
         elif k == K('Key_I'):
             self.toggle_inspector()
+        elif k == K('Key_B'):
+            self.toggle_teams()
         elif k == K('Key_G'):
             self.exit_loupe() if self.mode == 'loupe' else self.enter_loupe()
         elif k in (K('Key_Left'), K('Key_Right'), K('Key_Up'), K('Key_Down'), K('Key_Home'), K('Key_End'),
@@ -1110,5 +1142,7 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         self.loader.stop()
         self.cfg.window['geometry'] = bytes(self.saveGeometry().data()).hex()
+        if self.teams.isVisible():
+            self.cfg.window['teams_split'] = self.vsplit.sizes()
         self.cfg.save()
         e.accept()

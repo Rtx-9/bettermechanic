@@ -119,7 +119,14 @@ def _search(p):
     p.drawLine(QPointF(12.2, 12.2), QPointF(16.6, 16.6))
 
 
-DRAW = {'folder': _folder, 'card': _card, 'export': _export, 'tag': _tag, 'text': _text, 'gear': _gear,
+def _people(p):
+    p.drawEllipse(QPointF(7.6, 7), 2.6, 2.6)
+    p.drawArc(QRectF(2.6, 11.4, 10, 9), 0, 180 * 16)
+    p.drawEllipse(QPointF(13.6, 6.4), 2.2, 2.2)
+    p.drawArc(QRectF(10.2, 10.6, 7.6, 7.4), 15 * 16, 120 * 16)
+
+
+DRAW = {'people': _people, 'folder': _folder, 'card': _card, 'export': _export, 'tag': _tag, 'text': _text, 'gear': _gear,
         'help': _help, 'sidebar_left': _sidebar, 'sidebar_right': lambda p: _sidebar(p, True), 'grid': _grid,
         'photo': _photo, 'search': _search}
 

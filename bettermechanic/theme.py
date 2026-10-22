@@ -165,6 +165,7 @@ QSplitter::handle { background: $separator; }
 
 /* sidebar (source list) */
 QWidget#sidebar { background: $sidebar; }
+QFrame#teams, QFrame#teams QScrollArea, QFrame#teams QScrollArea > QWidget > QWidget { background: $sidebar; }
 QLabel#section { color: $secondary; font-weight: 600; font-size: ${fs_small}pt; padding: 10px 2px 3px 2px; }
 QLabel#hint, QLabel#dim { color: $tertiary; font-size: ${fs_small}pt; }
 QLabel#group { color: $tertiary; font-size: ${fs_small}pt; padding: 6px 2px 2px 2px; }

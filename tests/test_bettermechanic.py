@@ -11,9 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PIL import Image  # noqa: E402
-from PySide6.QtGui import QGuiApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
-APP = QGuiApplication.instance() or QGuiApplication([sys.argv[0], '-platform', 'offscreen'])
+APP = QApplication.instance() or QApplication([sys.argv[0], '-platform', 'offscreen'])
 
 import samples  # noqa: E402
 from bettermechanic import core, imaging, previews  # noqa: E402
