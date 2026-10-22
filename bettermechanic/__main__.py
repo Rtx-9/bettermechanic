@@ -17,6 +17,7 @@ def _selftest(app, win, path):
             report = {'version': __version__, 'items': len(win.items), 'thumbs': done,
                       'previews_ok': sum(1 for it in win.items if it.tstate == 2),
                       'no_preview': sum(1 for it in win.items if it.tstate == -1), 'card_mode': win.ingest,
+                      'liiga_teams': sum(1 for p in win.cfg.tag_presets if p.get('liiga')),
                       'seconds': round(time.time() - t0, 2)}
             with open(path, 'w', encoding='utf-8') as fh:
                 json.dump(report, fh)
