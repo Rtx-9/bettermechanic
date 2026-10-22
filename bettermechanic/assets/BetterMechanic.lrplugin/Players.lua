@@ -16,6 +16,7 @@ local Tagging = require 'Tagging'
 
 local bind = LrView.bind
 local TILE_W, PIC = 104, 72
+local SIDE_H = 440                      -- tall enough for four rows, short enough for a 1080p screen with the caption rows
 
 -- one tile: picture and button. Lightroom only hides controls themselves (not rows or columns), so each has
 -- its own visibility; a heading tile shows just its picture.
@@ -208,9 +209,9 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 		},
 		f:row {
 			spacing = 10,
-			side(f, 'a', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, 560, onClick),
-			side(f, 'b', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, 560, onClick),
-			side(f, 'r', Model.REF_ROW, TILE_W * Model.REF_ROW + 40, 560, onClick),
+			side(f, 'a', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, SIDE_H, onClick),
+			side(f, 'b', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, SIDE_H, onClick),
+			side(f, 'r', Model.REF_ROW, TILE_W * Model.REF_ROW + 40, SIDE_H, onClick),
 		},
 		f:static_text { title = bind('status'), fill_horizontal = 1 },
 	}
