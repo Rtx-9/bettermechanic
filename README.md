@@ -74,9 +74,15 @@ presets per sport or team.
 BetterMechanic is the fast front end; Lightroom does the editing.
 
 1. **Ingest** the card: cull and tag, then **Ingest Tagged** (or **Ingest All Except Rejected**) into the folder you
-   keep your photos in.
-2. In Lightroom Classic, **Import → Add** that folder. Lightroom reads what BetterMechanic wrote: the XMP sidecar next to
-   each RAW, or the XMP inside each JPEG.
+   keep your photos in. Tick **Add the copies to Lightroom Classic** and they go straight into your catalog.
+2. Or press **Lightroom** in the toolbar (**Ctrl+L**) to add the selected photos of an open folder. On a memory card it
+   opens the Ingest window with *Add to Lightroom* ticked, so the copies are added, never the card.
+
+Lightroom adds the photos where they are (nothing is copied again), with what BetterMechanic wrote: the XMP sidecar
+next to each RAW, or the XMP inside each JPEG. They show up in the **BetterMechanic** collection, selected, and the
+status bar says how many were added. If Lightroom isn't running, BetterMechanic starts it and the photos are added once
+it's open. This needs the plugin (below), which the app installs; after installing or updating it, restart Lightroom
+once. Without the plugin you can still use **Import → Add** in Lightroom on the ingest folder.
 
 What Lightroom picks up: **star ratings**, **colour labels**, **keywords** (players are added as keywords too),
 **caption, headline, title, creator, copyright, city, location, event** and the other IPTC fields, and
@@ -154,6 +160,7 @@ Settings and presets are stored in `%APPDATA%\BetterMechanic` (Windows),
 | `Z` or click | 100% zoom (drag to pan) |
 | Arrows, `Shift`+arrows | Move / extend selection |
 | `Ctrl+O` / `Ctrl+I` / `Ctrl+E` | Open folder / ingest from card / copy & export |
+| `Ctrl+L` | Add the selected photos to Lightroom Classic |
 | `Ctrl+S` | Save metadata now (it also saves automatically) |
 | `Ctrl+A` / `Ctrl+D` / `Ctrl+F` | Select all / none / search |
 | `F1` | Help |

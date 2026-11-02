@@ -183,6 +183,8 @@ class TestCopy(Base):
         job = CopyJob(bus, items, [], opts, SETTINGS, preset, 'Soccer', hist)
         job.run()                                     # synchronous for the test
         self.assertEqual(res['copied'], len(items) - 1, res)
+        self.assertEqual(len(res['files']), res['copied'])          # what "Add to Lightroom" sends
+        self.assertTrue(all(os.path.isfile(f) and f.startswith(dest) for f in res['files']))
         out = sorted(os.listdir(os.path.join(dest, '20261021')))
         self.assertIn('20261021_001.NEF', out)        # DSC_0100.NEF sorted first after the rejected one
         self.assertTrue(any(n.endswith('.xmp') for n in out))

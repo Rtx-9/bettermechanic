@@ -383,12 +383,14 @@ WHICH = [('not_rejected', 'All except rejected'), ('all', 'All photos'), ('tagge
 
 
 class CopyDialog(QDialog):
-    def __init__(self, win, ingest=False, which=None):
+    def __init__(self, win, ingest=False, which=None, lightroom=False):
         super().__init__(win)
         self.win, self.cfg, self.ingest = win, win.cfg, ingest
         o = self.o = dict(win.cfg.copy)
         if which:
             o['which'] = which
+        if lightroom:
+            o['lightroom'] = True
         self.job = None
         self.setWindowTitle('Ingest' if ingest else 'Copy & Export')
         self.resize(720, 640)
@@ -484,6 +486,11 @@ class CopyDialog(QDialog):
         self.open_after = QCheckBox('Open the destination when done')
         self.open_after.setChecked(bool(o['open_after']))
         row('', self.open_after)
+        self.lightroom = QCheckBox('Add the copies to Lightroom Classic')
+        self.lightroom.setToolTip('Lightroom adds them where they are, with their tags and captions, and shows them in '
+                                  'the BetterMechanic collection. It starts Lightroom if it isn’t running.')
+        self.lightroom.setChecked(bool(o.get('lightroom')))
+        row('', self.lightroom)
         lay.addLayout(g)
         vars_ = QLabel('Variables: ' + '   '.join(v for v, _ in core.TEMPLATE_HELP))
         vars_.setWordWrap(True)
@@ -567,7 +574,7 @@ class CopyDialog(QDialog):
                 'meta_preset': self.preset.currentData(), 'preset_mode': self.pmode.currentData(),
                 'exists': self.exists.currentData(), 'write_meta': self.write_meta.isChecked(),
                 'open_after': self.open_after.isChecked(), 'ingest': self.ingest,
-                'skip_ingested': self.skip_ingested.isChecked()}
+                'skip_ingested': self.skip_ingested.isChecked(), 'lightroom': self.lightroom.isChecked()}
 
     def start(self):
         import os
@@ -622,6 +629,8 @@ class CopyDialog(QDialog):
         self.cfg.save()
         self.stop.hide()
         self.done_btn.show()
+        if self.o.get('lightroom') and res.get('files'):
+            self.win.send_to_lightroom(res['files'])
         dirs = res.get('dirs') or []
         if dirs:
             target = dirs[0] if len(dirs) == 1 else self.o['dest']
@@ -775,6 +784,7 @@ the selected photos</td></tr>
 <tr><td><b>Ctrl + O</b></td><td>Open folder</td></tr>
 <tr><td><b>Ctrl + I</b></td><td>Ingest from a memory card</td></tr>
 <tr><td><b>Ctrl + E</b></td><td>Copy &amp; export</td></tr>
+<tr><td><b>Ctrl + L</b></td><td>Add the selected photos to Lightroom Classic</td></tr>
 <tr><td><b>Ctrl + S</b></td><td>Save metadata now</td></tr>
 <tr><td><b>Ctrl + F</b></td><td>Search (names, players, keywords, captions)</td></tr>
 <tr><td><b>F1 / ?</b></td><td>This help</td></tr>

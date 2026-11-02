@@ -4,13 +4,19 @@ The plugin (assets/BetterMechanic.lrplugin, Lua) is a floating window in Lightro
 referees; clicking someone tags the photos selected in Lightroom. It reads what this module writes to
 <app folder>/lightroom: players.txt (one tab-separated record per line) and ready-made round photos with the
 jersey number on them, so the plugin needs no network, image or JSON code of its own.
+
+Send to Lightroom: the app writes the photos' paths to <app folder>/lightroom/send and the plugin, which watches
+that folder while Lightroom runs, adds them to the catalog.
 """
 from __future__ import annotations
 
+import glob
 import hashlib
 import os
 import shutil
+import subprocess
 import sys
+import time
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -73,10 +79,81 @@ def up_to_date():
         return False
 
 
+def executable():
+    """Lightroom Classic's program, or None when it isn't installed where Adobe puts it."""
+    if sys.platform == 'win32':
+        roots = {os.environ.get(k) for k in ('ProgramW6432', 'ProgramFiles')} | {r'C:\Program Files'}
+        for root in filter(None, roots):
+            found = sorted(glob.glob(os.path.join(root, 'Adobe', 'Adobe Lightroom Classic*', 'Lightroom.exe')))
+            if found:
+                return found[0]
+        return None
+    found = sorted(glob.glob('/Applications/Adobe Lightroom Classic*/Adobe Lightroom Classic.app'))
+    return found[0] if found else None
+
+
+def running():
+    try:
+        if sys.platform == 'win32':
+            out = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq Lightroom.exe', '/NH'], capture_output=True,
+                                 text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+            return 'lightroom.exe' in out.lower()
+        return subprocess.run(['pgrep', '-x', 'Adobe Lightroom Classic'], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def launch():
+    """Start Lightroom Classic; True if it could be started."""
+    exe = executable()
+    if not exe:
+        return False
+    try:
+        subprocess.Popen(['open', exe] if sys.platform == 'darwin' else [exe], close_fds=True)
+        return True
+    except OSError:
+        return False
+
+
 # ------------------------------------------------------------------ data
 
 def data_dir(cfg):
     return os.path.join(os.path.dirname(str(cfg.path)), 'lightroom')
+
+
+def send_dir(cfg):
+    return os.path.join(data_dir(cfg), 'send')
+
+
+def send(cfg, paths):
+    """Ask the plugin to add these files to the Lightroom catalog. Returns the request's name (see result)."""
+    out = send_dir(cfg)
+    os.makedirs(out, exist_ok=True)
+    for f in os.listdir(out):                       # answers nobody waited for
+        p = os.path.join(out, f)
+        try:
+            if f.endswith('.done') and os.path.getmtime(p) < time.time() - 3600:
+                os.remove(p)
+        except OSError:
+            pass
+    name = str(time.time_ns())                      # sorts by time: the plugin takes the oldest first
+    tmp = os.path.join(out, name + '.part')
+    with open(tmp, 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write(''.join(os.path.abspath(p) + '\n' for p in paths))
+    os.replace(tmp, os.path.join(out, name + '.txt'))
+    return name
+
+
+def result(cfg, name):
+    """(added, already in the catalog, failed) once Lightroom has taken the request, else None."""
+    p = os.path.join(send_dir(cfg), name + '.done')
+    try:
+        with open(p, encoding='utf-8') as fh:
+            counts = tuple(int(x) for x in fh.read().split()[:3])
+        os.remove(p)
+    except (OSError, ValueError):
+        return None
+    return counts if len(counts) == 3 else None
 
 
 def _clean(s):

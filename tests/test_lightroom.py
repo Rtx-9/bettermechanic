@@ -22,7 +22,7 @@ except ImportError:                     # pragma: no cover - optional test depen
 PLUGIN = lightroom.plugin_source()
 
 STUBS = r'''
-STUB = { log = {}, kw = {}, written = 0, dialogs = {} }
+STUB = { log = {}, kw = {}, written = 0, dialogs = {}, dirs = {} }
 local function path_child(a, b) return a .. '/' .. b end
 os.getenv = function(k) return STUB.env and STUB.env[k] end
 local modules = {
@@ -33,12 +33,22 @@ local modules = {
     parent = function(p) return p:match('^(.*)/[^/]+$') or p end,
   },
   LrFileUtils = {
-    exists = function(p) return STUB.files[p] ~= nil end,
+    exists = function(p) return STUB.files[p] ~= nil or STUB.dirs[p] ~= nil end,
     readFile = function(p) return STUB.files[p] end,
+    files = function(dir)
+      local list = {}
+      for p in pairs(STUB.files) do
+        if p:sub(1, #dir + 1) == dir .. '/' and not p:sub(#dir + 2):find('/') then list[#list + 1] = p end
+      end
+      local i = 0
+      return function() i = i + 1; return list[i] end
+    end,
+    delete = function(p) STUB.files[p] = nil end,
   },
   LrDate = { timeToUserFormat = function(t, fmt) return STUB.days[t] end },
   LrDialogs = {
     message = function(a, b) STUB.log[#STUB.log + 1] = 'message: ' .. b end,
+    showBezel = function(m) STUB.log[#STUB.log + 1] = 'bezel: ' .. m end,
     attachErrorDialogToFunctionContext = function() end,
     presentFloatingDialog = function(plugin, args) STUB.dialog = args end,
   },
@@ -46,6 +56,7 @@ local modules = {
   LrPrefs = { prefsForPlugin = function() return STUB.prefs end },
   LrTasks = {
     startAsyncTask = function(fn) fn() end,
+    pcall = pcall,
     sleep = function() STUB.dialog.windowWillClose() end,      -- the window closes during the first wait
   },
   LrBinding = { makePropertyTable = function()
@@ -88,7 +99,26 @@ function makeCatalog(photos)
   function c:getTargetPhoto() return self.photos[1] end
   function c:getTargetPhotos() return self.photos end
   function c:createKeyword(name) STUB.kw[name] = true; return { name = name } end
-  function c:withWriteAccessDo(title, fn) STUB.written = STUB.written + 1; fn() end
+  function c:withWriteAccessDo(title, fn)
+    if STUB.busy then return 'aborted' end
+    STUB.written = STUB.written + 1; fn(); return 'executed'
+  end
+  -- adding photos: the catalog knows paths, a file that isn't an image can't be added
+  c.byPath = {}
+  function c:findPhotoByPath(path) return self.byPath[path] end
+  function c:addPhoto(path)
+    if path:sub(-4) == '.txt' then error('not a photo') end
+    local p = makePhoto(path, {}); self.byPath[path] = p; return p
+  end
+  function c:createCollection(name, parent, existing)
+    self.collection = self.collection or { name = name, photos = {} }
+    local col = self.collection
+    function col:removeAllPhotos() self.photos = {} end
+    function col:addPhotos(ps) for _, p in ipairs(ps) do self.photos[#self.photos + 1] = p end end
+    return col
+  end
+  function c:setActiveSources(s) self.sources = s end
+  function c:setSelectedPhotos(active, all) self.selected = all end
   return c
 end
 '''
@@ -97,7 +127,7 @@ end
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.cfg = Config(os.path.join(self.tmp, 'config.json'))
+        self.cfg = Config(os.path.join(self.tmp, 'BetterMechanic', 'config.json'))    # tmp is the plugin's APPDATA
         home, away = tag_preset('Home'), tag_preset('Away')
         home['liiga'], away['liiga'], home['keywords'] = '1:kärpät', '1:saipa', 'Home, Liiga'
         home['roster'] = [{'name': 'Aa Bee', 'number': '29', 'image': ''},
@@ -144,6 +174,19 @@ class TestExport(Base):
         with open(os.path.join(out, 'players.txt'), encoding='utf-8') as fh:
             self.assertEqual(fh.read().splitlines()[1], f'd\t{self.cfg.settings["team_panel"][0]}\t'
                                                         f'{self.cfg.settings["team_panel"][1]}')
+
+    def test_send_and_result(self):
+        name = lightroom.send(self.cfg, [os.path.join(self.tmp, 'a.NEF'), os.path.join(self.tmp, 'b.JPG')])
+        req = os.path.join(lightroom.send_dir(self.cfg), name + '.txt')
+        with open(req, encoding='utf-8') as fh:
+            self.assertEqual(fh.read().splitlines(), [os.path.join(self.tmp, 'a.NEF'), os.path.join(self.tmp, 'b.JPG')])
+        self.assertIsNone(lightroom.result(self.cfg, name))                    # Lightroom hasn't taken it yet
+        later = lightroom.send(self.cfg, [])
+        self.assertLess(name, later)                                          # the plugin takes them in order
+        with open(os.path.join(lightroom.send_dir(self.cfg), name + '.done'), 'w') as fh:
+            fh.write('1 1 0\n')
+        self.assertEqual(lightroom.result(self.cfg, name), (1, 1, 0))
+        self.assertFalse(os.path.exists(os.path.join(lightroom.send_dir(self.cfg), name + '.done')))
 
     def test_install(self):
         with mock.patch.object(lightroom, 'modules_dir', return_value=os.path.join(self.tmp, 'Modules')):
@@ -361,6 +404,41 @@ class TestPluginLua(Base):
         props.showRefs = False                                                    # referees off: column empty
         props.observers['showRefs']()
         self.assertFalse(props['r_2_btn'])
+
+    def test_inbox_adds_sent_photos(self):
+        lua, stub = self.lua, self.lua.globals().STUB
+        a, b = os.path.join(self.tmp, 'a.NEF'), os.path.join(self.tmp, 'b.JPG')
+        name = lightroom.send(self.cfg, [a, b, os.path.join(self.tmp, 'gone.NEF'), os.path.join(self.tmp, 'c.txt')])
+        send = f'{stub.appdata}/BetterMechanic/lightroom/send'
+        req = os.path.join(lightroom.send_dir(self.cfg), name + '.txt')
+        with open(req, encoding='utf-8') as fh:
+            text = fh.read()
+        os.remove(req)                                  # the stub's file system holds it from here on
+        for p in (a, b, os.path.join(self.tmp, 'c.txt')):
+            stub.files[p] = ''
+        stub.files[f'{send}/{name}.txt'] = text
+        stub.dirs[send] = True
+        catalog = lua.eval('makeCatalog({})')
+        catalog.byPath[b] = lua.eval('makePhoto')('b', lua.table())         # already in the catalog
+        inbox = lua.eval('require("Inbox")')
+        self.assertEqual(inbox.folder(), send)
+        stub.busy = True                                # catalog busy: the request waits
+        inbox.process(catalog)
+        self.assertIsNotNone(stub.files[f'{send}/{name}.txt'])
+        stub.busy = False
+        inbox.process(catalog)
+        self.assertIsNone(stub.files[f'{send}/{name}.txt'])
+        self.assertEqual(lightroom.result(self.cfg, name), (1, 1, 2))         # the app reads the answer
+        self.assertIsNotNone(catalog.byPath[a])
+        self.assertEqual(len(catalog.collection.photos), 2)
+        self.assertEqual(catalog.collection.name, 'BetterMechanic')
+        self.assertEqual(catalog.sources[1].name, 'BetterMechanic')                 # shown in Lightroom
+        self.assertEqual(len(catalog.selected), 2)
+        self.assertIn('bezel: Added 1 photo from BetterMechanic, 1 already in the catalog, 2 could not be added',
+                      list(stub.log.values()))
+        info = lua.eval(f'dofile([[{PLUGIN}/Info.lua]])')
+        self.assertEqual((info.LrInitPlugin, info.LrShutdownPlugin), ('Init.lua', 'Shutdown.lua'))
+        self.assertTrue(info.LrForceInitPlugin)         # at startup, not once the window is first opened
 
     def test_window_opens_with_the_apps_teams(self):
         lua = self.lua

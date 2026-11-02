@@ -6,6 +6,7 @@ import datetime
 import os
 import sys
 import threading
+import time
 from collections import OrderedDict
 from types import SimpleNamespace
 
@@ -163,6 +164,8 @@ class MainWindow(QMainWindow):
         self.open_btn.setPopupMode(QToolButton.MenuButtonPopup)
         self._tool(tb, 'card', 'Ingest', lambda: self.choose_folder(True), 'Ingest from a memory card (Ctrl+I)')
         self._tool(tb, 'export', 'Export', self.open_copy, 'Copy & export (Ctrl+E)')
+        self._tool(tb, 'lightroom', 'Lightroom', self.send_to_lightroom,
+                   'Add the selected photos to Lightroom Classic (Ctrl+L)')
         tb.addWidget(self._spacer())
         seg = QFrame()
         seg.setObjectName('segmented')
@@ -314,7 +317,7 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self.st_save)
 
         for seq, fn in (('Ctrl+O', lambda: self.choose_folder(False)), ('Ctrl+I', lambda: self.choose_folder(True)),
-                        ('Ctrl+E', self.open_copy), ('Ctrl+S', self.flush_saves), ('Ctrl+D', self.select_none),
+                        ('Ctrl+E', self.open_copy), ('Ctrl+L', self.send_to_lightroom), ('Ctrl+S', self.flush_saves), ('Ctrl+D', self.select_none),
                         ('Ctrl+A', self.select_all), ('Ctrl+F', lambda: (self.search.setFocus(), self.search.selectAll())),
                         ('Ctrl+M', self.open_meta_presets), ('Ctrl+,', lambda: SettingsDialog(self).exec())):
             QShortcut(QKeySequence(seq), self, activated=fn)
@@ -946,6 +949,54 @@ class MainWindow(QMainWindow):
         self.lr_thread = threading.Thread(target=run, daemon=True, name='lightroom')
         self.lr_thread.start()
 
+    def send_to_lightroom(self, paths=None):
+        """Add photos to the Lightroom Classic catalog where they are (the plugin does it, see lightroom.send).
+        Photos on a memory card are ingested first: the copies are added."""
+        if paths is None:
+            if not self.items:
+                self.toast('Open a folder first')
+                return
+            if self.ingest:
+                self.open_copy(lightroom=True)
+                return
+            ts = self.targets()
+            if not ts:
+                self.toast('Select the photos to add to Lightroom')
+                return
+            self.flush_saves()
+            paths = [it.primary.path for it in ts]
+        if self.saver.pending:                      # Lightroom reads the tags from the files: let them land first
+            QTimer.singleShot(200, lambda: self.send_to_lightroom(paths))
+            return
+        if not paths:
+            return
+        try:
+            if not lightroom.up_to_date():
+                lightroom.install()
+                self.lr_timer.start()
+            name = lightroom.send(self.cfg, paths)
+        except OSError as e:
+            self.toast(f'Couldn’t send the photos to Lightroom: {e}', 6000)
+            return
+        n = f'{len(paths)} photo{"s" if len(paths) != 1 else ""}'
+        started = not lightroom.running() and lightroom.launch()
+        self.toast(f'Starting Lightroom to add {n}…' if started else f'Adding {n} to Lightroom…', 120000)
+        self._lr_check(name, time.time() + (180 if started else 15))
+
+    def _lr_check(self, name, until):
+        res = lightroom.result(self.cfg, name)
+        if res:
+            added, existing, failed = res
+            parts = [f'{added} added to Lightroom'] + ([f'{existing} already there'] if existing else [])                 + ([f'{failed} couldn’t be added'] if failed else [])
+            self.toast(', '.join(parts) + (' (in the BetterMechanic collection)' if added + existing else ''), 6000)
+        elif time.time() < until:
+            QTimer.singleShot(500, lambda: self._lr_check(name, until))
+        elif lightroom.running():
+            self.toast('Lightroom hasn’t taken the photos yet. If the plugin was just installed or updated, restart '
+                       'Lightroom once: they are added then.', 12000)
+        else:
+            self.toast('Lightroom isn’t running: the photos are added when you start it.', 8000)
+
     def update_liiga(self, quiet=False, done=None):
         """Refresh Liiga rosters from liiga.fi in the background. quiet: automatic daily check, existing teams only."""
         self.liiga_done_cb = done
@@ -999,7 +1050,7 @@ class MainWindow(QMainWindow):
         self.meta_menu.addAction('Edit Metadata Presets…', self.open_meta_presets)
 
     # ============================================================= copy
-    def open_copy(self, which=None):
+    def open_copy(self, which=None, lightroom=False):
         if not self.items:
             self.toast('Open a folder or card first')
             return
@@ -1010,7 +1061,7 @@ class MainWindow(QMainWindow):
             if not any(it.meta['tagged'] for it in self.items):
                 self.toast('Nothing is tagged yet: press T on the photos you want to keep')
                 return
-        CopyDialog(self, ingest=self.ingest, which=which).exec()
+        CopyDialog(self, ingest=self.ingest, which=which, lightroom=lightroom).exec()
 
     def start_copy(self, o):
         job = CopyJob(self.bus, list(self.model.items), [it.id for it in self.targets()], o, self.cfg.settings,
@@ -1152,7 +1203,6 @@ class MainWindow(QMainWindow):
         self.culls.save()
         if self.saver.pending:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            import time
             t0 = time.time()
             while self.saver.pending and time.time() - t0 < 20:
                 QApplication.processEvents()

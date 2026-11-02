@@ -241,7 +241,7 @@ class CopyJob(threading.Thread):
             todo = [it for it in self.items if pick(it, self.sel)]
             total = sum(it.size for it in todo) * (2 if o.get('use_backup') and o.get('backup') else 1)
             roots = [o['dest']] + ([o['backup']] if o.get('use_backup') and o.get('backup') else [])
-            seq, t0, dirs = st.get('seq', 1), time.time(), []
+            seq, t0, dirs, files = st.get('seq', 1), time.time(), [], []
             use_hist = o.get('ingest') and o.get('skip_ingested', True)
             hist = core.load_history(self.history_path) if o.get('ingest') else set()
             if use_hist:
@@ -266,7 +266,10 @@ class CopyJob(threading.Thread):
                         os.makedirs(d, exist_ok=True)
                         if root == o['dest'] and d not in dirs:
                             dirs.append(d)
-                        did = self._copy_item(it, meta, d, base) or did
+                        path = self._copy_item(it, meta, d, base)
+                        if path and root == o['dest']:
+                            files.append(path)
+                        did = bool(path) or did
                     if did:
                         res['copied'] += 1
                         seq += 1
@@ -279,7 +282,7 @@ class CopyJob(threading.Thread):
                         break
                     res['failed'] += 1
                     res['errors'].append(f'{it.name}: {e}')
-            res['seq'], res['dirs'], res['n'] = seq, dirs, len(todo)
+            res['seq'], res['dirs'], res['n'], res['files'] = seq, dirs, len(todo), files
             if o.get('ingest'):
                 core.save_history(hist, self.history_path)
         except Exception as e:
@@ -329,6 +332,7 @@ class CopyJob(threading.Thread):
             raise
 
     def _copy_item(self, it, meta, d, base):
+        """Copy one photo into d; the path of its main file, or None when it was skipped."""
         o, st = self.o, self.settings
         p2k, iim = st.get('people_to_keywords', True), st.get('write_iim', True)
         write_meta = o.get('write_meta', True)
@@ -344,7 +348,7 @@ class CopyJob(threading.Thread):
             if write_meta:
                 data = M.rewrite_jpeg(data, meta, p2k, iim, st.get('lr_tag_mark'))
             self._write(os.path.join(d, names[0]), data)
-            return True
+            return os.path.join(d, names[0])
         names = self._names(d, [base + '.' + f.ext for f in it.files])
         if not names:
             return False
@@ -367,4 +371,4 @@ class CopyJob(threading.Thread):
                     pass
             text = M.build_xmp(meta, existing, p2k, st.get('lr_tag_mark')) if write_meta else existing
             self._write(os.path.join(d, os.path.splitext(names[0])[0] + '.xmp'), text.encode('utf-8'))
-        return True
+        return os.path.join(d, names[0])

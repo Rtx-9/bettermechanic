@@ -2,7 +2,8 @@
 
 A window with two teams and the referees, every person a photo and a button: click to tag the photos selected
 in Lightroom (keyword and IPTC "Person Shown"). The teams, people and pictures come from the BetterMechanic app,
-which installs this plugin and keeps its data up to date.
+which installs this plugin and keeps its data up to date. Photos sent from the app (Send to Lightroom) are added
+to the catalog while Lightroom runs (Init.lua, Inbox.lua).
 ]]
 
 return {
@@ -11,11 +12,14 @@ return {
 	LrToolkitIdentifier = 'app.bettermechanic.players',
 	LrPluginName = 'BetterMechanic Players',
 	LrPluginInfoUrl = 'https://github.com/Rtx-9/bettermechanic',
+	LrInitPlugin = 'Init.lua',
+	LrForceInitPlugin = true,              -- run Init.lua when Lightroom starts, not when the plugin is first used
+	LrShutdownPlugin = 'Shutdown.lua',
 	LrLibraryMenuItems = {
 		{ title = 'BetterMechanic Players...', file = 'Players.lua' },
 	},
 	LrExportMenuItems = {
 		{ title = 'BetterMechanic Players...', file = 'Players.lua' },
 	},
-	VERSION = { major = 0, minor = 11, revision = 0, build = 1 },
+	VERSION = { major = 0, minor = 12, revision = 0, build = 1 },
 }

@@ -140,6 +140,40 @@ class TestTeamsPanel(unittest.TestCase):
         self.assertEqual(g.minimumHeight(), rows * g.TILE.height() + 4)
         self.assertEqual(g.index_at(g.tile_rect(13).center().toPoint()), 13)
 
+    def test_send_to_lightroom(self):
+        from bettermechanic import app, lightroom
+        with mock.patch.object(app.CopyDialog, 'exec') as dialog_exec, \
+                mock.patch.object(app.CopyDialog, '__init__', return_value=None) as dialog:
+            self.win.send_to_lightroom()                 # a memory card: ingest first, the copies are added
+        self.assertTrue(dialog.call_args.kwargs['lightroom'])
+        dialog_exec.assert_called_once()
+        plain = os.path.join(self.tmp, 'edited')         # a folder of photos, not a card
+        os.makedirs(plain)
+        for root, _, names in os.walk(os.path.join(self.tmp, 'photos')):
+            for n in names:
+                shutil.copy2(os.path.join(root, n), plain)
+        self.win.open_folder(plain)
+        pump(0.6)
+        self.win.select_all()
+        self.click(0, 'Aa Home')                         # an unsaved tag: written to the files before sending
+        with mock.patch.object(lightroom, 'running', return_value=False), \
+                mock.patch.object(lightroom, 'launch', return_value=True) as launch:
+            self.win.send_to_lightroom()
+            pump(1.0)
+            launch.assert_called_once()                  # Lightroom wasn't running: started
+        out = lightroom.send_dir(self.cfg)
+        reqs = [f for f in os.listdir(out) if f.endswith('.txt')]
+        self.assertEqual(len(reqs), 1)
+        with open(os.path.join(out, reqs[0]), encoding='utf-8') as fh:
+            paths = fh.read().splitlines()
+        self.assertEqual(sorted(paths), sorted(it.primary.path for it in self.win.items))
+        self.assertFalse(self.win.dirty)
+        self.assertTrue(lightroom.installed())          # the plugin was put in place for it
+        with open(os.path.join(out, reqs[0][:-4] + '.done'), 'w') as fh:
+            fh.write(f'{len(paths)} 0 0\n')              # what the plugin answers
+        pump(1.0)
+        self.assertIn(f'{len(paths)} added to Lightroom', self.win.statusBar().currentMessage())
+
 
 if __name__ == '__main__':
     unittest.main()

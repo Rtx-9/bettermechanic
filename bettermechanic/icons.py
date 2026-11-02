@@ -126,7 +126,22 @@ def _people(p):
     p.drawArc(QRectF(10.2, 10.6, 7.6, 7.4), 15 * 16, 120 * 16)
 
 
-DRAW = {'people': _people, 'folder': _folder, 'card': _card, 'export': _export, 'tag': _tag, 'text': _text, 'gear': _gear,
+def _lightroom(p):
+    # photos going into a catalog: an arrow into a stack of frames
+    path = QPainterPath()
+    path.moveTo(8, 4)
+    path.lineTo(15.5, 4)
+    path.quadTo(17, 4, 17, 5.5)
+    path.lineTo(17, 14.5)
+    path.quadTo(17, 16, 15.5, 16)
+    path.lineTo(8, 16)
+    p.drawPath(path)
+    p.drawLine(QPointF(10.5, 1.8), QPointF(17.5, 1.8))
+    p.drawLine(QPointF(2.8, 10), QPointF(12.5, 10))
+    p.drawPolyline([QPointF(9.6, 7.1), QPointF(12.5, 10), QPointF(9.6, 12.9)])
+
+
+DRAW = {'people': _people, 'lightroom': _lightroom, 'folder': _folder, 'card': _card, 'export': _export, 'tag': _tag, 'text': _text, 'gear': _gear,
         'help': _help, 'sidebar_left': _sidebar, 'sidebar_right': lambda p: _sidebar(p, True), 'grid': _grid,
         'photo': _photo, 'search': _search}
 

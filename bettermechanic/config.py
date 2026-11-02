@@ -72,6 +72,7 @@ DEFAULT_COPY = {
     'write_meta': True,
     'open_after': True,
     'skip_ingested': True,
+    'lightroom': False,            # add the copies to the Lightroom catalog (lightroom.send)
 }
 
 
