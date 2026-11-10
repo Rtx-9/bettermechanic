@@ -27,12 +27,13 @@ from .config import players
 GENITIVE = {'hifk': 'HIFK:n', 'hpk': 'HPK:n', 'ilves': 'Ilveksen', 'jyp': 'JYP:n', 'jokerit': 'Jokereiden',
             'jukurit': 'Jukureiden', 'k-espoo': 'K-Espoon', 'kalpa': 'KalPan', 'kookoo': 'KooKoon',
             'kärpät': 'Kärppien', 'lukko': 'Lukon', 'pelicans': 'Pelicansin', 'saipa': 'SaiPan', 'sport': 'Sportin',
-            'tps': 'TPS:n', 'tappara': 'Tapparan', 'ässät': 'Ässien'}
+            'tps': 'TPS:n', 'tappara': 'Tapparan', 'ässät': 'Ässien',
+            'pardubice': 'Pardubicen'}                                          # CHL clubs (chl.CLUBS)
 LOCATIVE = {'Espoo': 'Espoossa', 'Helsinki': 'Helsingissä', 'Hämeenlinna': 'Hämeenlinnassa', 'Jyväskylä': 'Jyväskylässä',
             'Kouvola': 'Kouvolassa', 'Kuopio': 'Kuopiossa', 'Lahti': 'Lahdessa', 'Lappeenranta': 'Lappeenrannassa',
             'Mikkeli': 'Mikkelissä', 'Oulu': 'Oulussa', 'Pori': 'Porissa', 'Rauma': 'Raumalla', 'Tampere': 'Tampereella',
             'Turku': 'Turussa', 'Vaasa': 'Vaasassa', 'Vantaa': 'Vantaalla', 'Seinäjoki': 'Seinäjoella',
-            'Joensuu': 'Joensuussa', 'Kotka': 'Kotkassa', 'Savonlinna': 'Savonlinnassa'}
+            'Joensuu': 'Joensuussa', 'Kotka': 'Kotkassa', 'Savonlinna': 'Savonlinnassa', 'Pardubice': 'Pardubicessa'}
 
 SIZE = 72                       # avatar size in the Lightroom window (pixels)
 RENDER = 2                      # render version: bump to redraw every picture
@@ -253,7 +254,9 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
         city = _clean(g.get('city'))
         lines.append('\t'.join(['g', g.get('date', ''), *[(t or '') for t in (g.get('teams') or ['', ''])[:2]],
                                 '|'.join(_clean(r) for r in g.get('refs') or []), _clean(g.get('rink')), city,
-                                LOCATIVE.get(city, '')]))
+                                LOCATIVE.get(city, ''), _clean(g.get('series')),
+                                *[_clean(n) for n in (list(g.get('names') or []) + ['', ''])[:2]],
+                                _clean(g.get('country', 'Finland')), _clean(g.get('code', 'FI'))]))
 
     def draw(job):
         e, cached, dest = job

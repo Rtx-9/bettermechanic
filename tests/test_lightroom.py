@@ -140,7 +140,11 @@ class Base(unittest.TestCase):
         self.cfg.tag_presets = [home, away, refs]
         liiga.save_games(self.cfg, {'2027:1': {'date': '2026-10-21', 'teams': ['1:saipa', '1:kärpät'],
                                                'refs': ['Ref 4', 'Ref 1'], 'rink': 'Lappeenrannan jäähalli I',
-                                               'city': 'Lappeenranta'}})
+                                               'city': 'Lappeenranta'},
+                                    'chl:1': {'date': '2026-11-18', 'teams': ['chl:pardubice', '1:saipa'], 'refs': [],
+                                              'names': ['Dynamo Pardubice', 'SaiPa Lappeenranta'],
+                                              'rink': 'Enteria Arena', 'city': 'Pardubice', 'country': 'Czech Republic',
+                                              'code': 'CZ', 'series': 'Mestarien liigan neljännesvälieräottelussa'}})
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -160,7 +164,10 @@ class TestExport(Base):
         self.assertTrue(os.path.exists(os.path.join(out, 'img', 'h_staff.png')))
         self.assertTrue(any(ln.startswith('p\tCc Coach\t\tPäävalmentaja\t') for ln in lines))
         self.assertIn('g\t2026-10-21\t1:saipa\t1:kärpät\tRef 4|Ref 1\tLappeenrannan jäähalli I\tLappeenranta\t'
-                      'Lappeenrannassa', lines)
+                      'Lappeenrannassa\t\t\t\tFinland\tFI', lines)
+        self.assertIn('g\t2026-11-18\tchl:pardubice\t1:saipa\t\tEnteria Arena\tPardubice\tPardubicessa\t'
+                      'Mestarien liigan neljännesvälieräottelussa\tDynamo Pardubice\tSaiPa Lappeenranta\t'
+                      'Czech Republic\tCZ', lines)
         pic = next(ln for ln in lines if ln.startswith('p\tAa Bee')).split('\t')[4]
         with Image.open(os.path.join(out, 'img', pic)) as im:
             self.assertEqual(im.size, (lightroom.SIZE, lightroom.SIZE))
@@ -317,6 +324,12 @@ class TestPluginLua(Base):
         self.assertEqual(cap.render(template, 'Kärppien Aa Bee (29)'),
                          'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
         self.assertEqual(cap.render('{people}, Oulu', 'linjatuomari X'), 'Linjatuomari X, Oulu')
+        chl = next(g for g in d.games.values() if g.date == '2026-11-18')          # a CHL game abroad
+        template, info = cap.fromGame(d, chl)
+        self.assertEqual(template, '{people} Mestarien liigan neljännesvälieräottelussa Dynamo Pardubice–Away '
+                                   'Pardubicessa 18. marraskuuta 2026.')   # no preset for Pardubice: its CHL name
+        self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
+                         ('Dynamo Pardubice–Away', 'Pardubice', 'Czech Republic', 'CZ', 'Enteria Arena'))
 
     def test_caption_follows_the_people(self):
         cap = self.lua.eval('require("Caption")')

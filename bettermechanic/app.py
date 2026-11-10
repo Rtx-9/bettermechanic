@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication
                                QPlainTextEdit, QPushButton, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import core, icons, liiga, lightroom, theme
+from . import chl, core, icons, liiga, lightroom, theme
 from .avatars import AvatarStore
 from .config import key_label
 from .picker import PlayerPicker, RosterEditor
@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         self.board, self.liiga_job, self.liiga_done_cb = None, None, None
         if liiga.add_bundled(cfg):
             cfg.save()
-        if liiga.due(cfg):
+        if liiga.due(cfg) or cfg.settings.get('liiga_auto_update') and 'chl_added' not in cfg.settings:
             QTimer.singleShot(4000, lambda: self.update_liiga(quiet=True))
         self.lr_thread = None
         self.lr_timer = QTimer(self, singleShot=True, interval=3000, timeout=self.export_lightroom)
@@ -1008,23 +1008,45 @@ class MainWindow(QMainWindow):
         known = liiga.load_games(self.cfg)
 
         def run():
+            data = err = None
             try:
-                job.ready.emit(liiga.fetch(games=known), None)
+                data = liiga.fetch(games=known)
             except Exception as e:      # offline, liiga.fi changed, season not started …
-                job.ready.emit(None, e)
+                err = e
+            ids = [t['id'] for t in (data or liiga.snapshot())['teams']]
+            try:                        # the Champions Hockey League games of the Finnish clubs and their opponents
+                extra = chl.fetch(ids, dict(known, **(data or {}).get('games', {})))
+            except Exception:
+                extra = None
+            job.ready.emit(dict(data or {}, chl=extra), err)
         threading.Thread(target=run, daemon=True, name='liiga').start()
+
+    def _apply_chl(self, data, quiet):
+        """CHL clubs: the daily check adds each one once (one you delete stays deleted), Update Liiga Rosters all."""
+        s = self.cfg.settings
+        seen = set(s.get('chl_added') or [])
+        new = {t['id'] for t in data['teams']} - seen
+        s['chl_added'] = sorted(seen | new)
+        return liiga.apply(self.cfg, data, add_missing=new if quiet else True)
 
     def _liiga_done(self, data, err):
         job, cb = self.liiga_job, self.liiga_done_cb
         self.liiga_job = self.liiga_done_cb = None
+        added = updated = 0
+        data = data or {}
+        if data.get('chl'):
+            added, updated = self._apply_chl(data['chl'], job.quiet)
         if err is not None:
             msg = f'Couldn’t get rosters from liiga.fi ({err})'
         else:
             self.cfg.settings['liiga_checked'] = datetime.date.today().isoformat()
-            added, updated = liiga.apply(self.cfg, data, add_missing=not job.quiet)
+            a, u = liiga.apply(self.cfg, data, add_missing=not job.quiet)
+            added, updated = added + a, updated + u
+        if err is None or added or updated:
             self.preset_changed(quiet=True)
             if self.board is not None:
                 self.board.render()
+        if err is None:
             parts = [f'{added} team{"s" if added != 1 else ""} added'] if added else []
             parts += [f'{updated} roster{"s" if updated != 1 else ""} updated'] if updated else []
             msg = 'Liiga rosters: ' + (', '.join(parts) if parts else 'already up to date')

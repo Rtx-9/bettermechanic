@@ -5,6 +5,7 @@ players.txt, one tab-separated record per line:
   t  <preset id>  <team name>  <liiga id>  <keywords added when tagging>  <genitive: "Kärppien">
   p  <name>  <number>  <role, empty for players>  <picture file in img/>
   g  <date YYYY-MM-DD>  <home liiga id>  <away liiga id>  <referee|referee|...>  <arena>  <city>  <"in city": "Oulussa">
+     <caption words, empty for "Liigan ottelussa">  <home name>  <away name>  <country>  <ISO country code>
 ]]
 
 local LrFileUtils = import 'LrFileUtils'
@@ -74,7 +75,8 @@ function Data.parse(text, folder)
 				if r ~= '' then refs[#refs + 1] = r end
 			end
 			data.games[#data.games + 1] = { date = f[2], teams = { f[3] or '', f[4] or '' }, refs = refs,
-				rink = f[6] or '', city = f[7] or '', cityIn = f[8] or '' }
+				rink = f[6] or '', city = f[7] or '', cityIn = f[8] or '', series = f[9] or '',
+				names = { f[10] or '', f[11] or '' }, country = f[12] or 'Finland', isoCountryCode = f[13] or 'FI' }
 		end
 	end
 	return data

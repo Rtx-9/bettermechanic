@@ -42,6 +42,9 @@ presets per sport or team.
   a day (Settings → *Keep Liiga rosters up to date*), or on demand with **Update Liiga Rosters** in Tag Presets. Your
   quick keys, keywords and captions are kept, and so are people you add yourself: give them a **Role** in the roster
   editor (e.g. *Assistant coach*) and they show under Staff.
+- **Champions Hockey League.** The CHL games of the Finnish clubs come from chl.hockey with the Liiga update, and the
+  clubs they play get a preset of their own where the club's website has a roster to read (so far *Dynamo Pardubice*:
+  players, numbers, photos and staff, roles in Finnish). Keywords are the club's name and *CHL*.
 - **Good photos for everyone.** Photos come from liiga.fi, then last season's liiga.fi photo, then the club's website,
   then Wikipedia (only articles about ice hockey people, so a namesake's portrait isn't used). Placeholder
   silhouettes and logos are skipped, and on Windows every photo is framed on the face with the built-in face detector.
@@ -110,7 +113,8 @@ you tag then gets the caption with the people on it, in Finnish:
 > 20. lokakuuta 2026.
 
 Staff are written with their role (*Kärppien päävalmentaja Petri Karjalainen*), referees as *päätuomari* and
-*linjatuomari*. Taking someone off takes them out of the caption too. A caption you wrote yourself is kept: only the
+*linjatuomari*. A CHL game says so: *… Mestarien liigan neljännesvälieräottelussa SaiPa–Dynamo Pardubice
+Lappeenrannassa 11. marraskuuta 2026.* Taking someone off takes them out of the caption too. A caption you wrote yourself is kept: only the
 names in it change. **Headline** (*SaiPa–Kärpät*), **City**, **Country** and **Sublocation** (the arena, from
 liiga.fi) are filled in where a photo has none. When exporting, choose *Metadata: All Metadata* (or *All Except Camera &
 Camera Raw Info*) and leave *Remove Person Info* off, so the names and caption go with the photo.

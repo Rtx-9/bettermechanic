@@ -101,16 +101,21 @@ end
 --[[ A caption and the game's details for news photos, from the game a photo is from:
      template "{people} Liigan ottelussa Kärpät–SaiPa Oulussa 20. lokakuuta 2026." and
      info { headline = 'Kärpät–SaiPa', city = 'Oulu', country = 'Finland', isoCountryCode = 'FI',
-            location = 'Oulun jäähalli' } ]]
+            location = 'Oulun jäähalli' }
+     A CHL game says so: "{people} Mestarien liigan neljännesvälieräottelussa SaiPa–Dynamo Pardubice …". ]]
 function Caption.fromGame(data, game)
-	local home = data.byLiiga[game.teams[1]]
-	local away = data.byLiiga[game.teams[2]]
-	local match = (home and home.name or '?') .. '–' .. (away and away.name or '?')
+	local names = game.names or {}
+	local function name(i)
+		local team = data.byLiiga[game.teams[i]]
+		return team and team.name or (names[i] ~= nil and names[i] ~= '' and names[i]) or '?'
+	end
+	local match = name(1) .. '–' .. name(2)
 	local where = game.cityIn ~= '' and game.cityIn or (game.city ~= '' and game.city or '')
-	local template = '{people} Liigan ottelussa ' .. match
+	local series = game.series ~= nil and game.series ~= '' and game.series or 'Liigan ottelussa'
+	local template = '{people} ' .. series .. ' ' .. match
 		.. (where ~= '' and (' ' .. where) or '') .. ' ' .. Caption.longDate(game.date) .. '.'
-	return template, { headline = match, city = game.city, country = 'Finland', isoCountryCode = 'FI',
-		location = game.rink }
+	return template, { headline = match, city = game.city, country = game.country or 'Finland',
+		isoCountryCode = game.isoCountryCode or 'FI', location = game.rink }
 end
 
 -- name -> entry for everyone, the teams shown in the window first (a name in two presets means them)

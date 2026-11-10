@@ -140,6 +140,23 @@ class TestTeamsPanel(unittest.TestCase):
         self.assertEqual(g.minimumHeight(), rows * g.TILE.height() + 4)
         self.assertEqual(g.index_at(g.tile_rect(13).center().toPoint()), 13)
 
+    def test_chl_club_added_once(self):
+        team = {'id': 'chl:pardubice', 'name': 'Dynamo Pardubice', 'keywords': 'Dynamo Pardubice, CHL',
+                'roster': [{'name': 'Roman Červenka', 'number': '19', 'image': ''}]}
+        data = {'chl': {'teams': [team], 'games': {}}}
+        names = lambda: [p['name'] for p in self.cfg.tag_presets]          # noqa: E731
+        for _ in range(2):
+            self.win.liiga_job = mock.Mock(quiet=True)                    # the daily check, liiga.fi offline
+            self.win._liiga_done(data, OSError('offline'))
+        self.assertEqual(names().count('Dynamo Pardubice'), 1)
+        self.cfg.tag_presets = [p for p in self.cfg.tag_presets if p['name'] != 'Dynamo Pardubice']
+        self.win.liiga_job = mock.Mock(quiet=True)
+        self.win._liiga_done(data, OSError('offline'))
+        self.assertNotIn('Dynamo Pardubice', names())                      # deleted: stays deleted
+        self.win.liiga_job = mock.Mock(quiet=False)                       # Update Liiga Rosters brings it back
+        self.win._liiga_done(data, OSError('offline'))
+        self.assertIn('Dynamo Pardubice', names())
+
     def test_send_to_lightroom(self):
         from bettermechanic import app, lightroom
         with mock.patch.object(app.CopyDialog, 'exec') as dialog_exec, \

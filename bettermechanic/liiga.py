@@ -327,7 +327,7 @@ def apply(cfg, data, add_missing=True):
                 continue
             p = tag_preset(t['name'])
             p['liiga'] = t['id']
-            p['keywords'] = 'Liiga' if t['id'] == REFEREES else f'{t["name"]}, Liiga'
+            p['keywords'] = t.get('keywords') or ('Liiga' if t['id'] == REFEREES else f'{t["name"]}, Liiga')
             cfg.tag_presets.append(p)
             added += 1
         fresh = [dict(r, role=r.get('role', ''), liiga=True) for r in t['roster']]
