@@ -1,2 +1,2 @@
 """BetterMechanic — fast photo culling, player tagging and ingest."""
-__version__ = '0.14.0'
+__version__ = '0.15.0'
