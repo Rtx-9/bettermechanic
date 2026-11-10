@@ -111,10 +111,11 @@ to date for the window, and updates the plugin itself when you install a new ver
 from the game selected: it writes the caption the way newsrooms want it and fills in the game's details. Every photo
 you tag then gets the caption with the people on it, in Finnish:
 
-> Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) SaiPa–Kärpät Liiga-ottelussa 20.10.2026.
+> Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) SaiPa–Kärpät Liiga-ottelussa 20.10.2026
+> Lappeenrannan Kisapuistossa.
 
 Staff are written with their role (*Kärppien päävalmentaja Petri Karjalainen*), referees as *päätuomari* and
-*linjatuomari*. A CHL game says so: *… SaiPa–Dynamo Pardubice CHL-ottelussa 11.11.2026.* Taking someone off takes
+*linjatuomari*. A CHL game says so: *… SaiPa–Dynamo Pardubice CHL-ottelussa 11.11.2026 Lappeenrannan Kisapuistossa.* Taking someone off takes
 them out of the caption too. A caption you wrote yourself is kept: only the names in it change. **Headline** (*SaiPa–Kärpät*), **City**, **Country** and **Sublocation** (the arena, from
 liiga.fi) are filled in where a photo has none. When exporting, choose *Metadata: All Metadata* (or *All Except Camera &
 Camera Raw Info*) and leave *Remove Person Info* off, so the names and caption go with the photo.

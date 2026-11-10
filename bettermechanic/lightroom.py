@@ -13,6 +13,7 @@ from __future__ import annotations
 import glob
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,23 @@ LOCATIVE = {'Espoo': 'Espoossa', 'Helsinki': 'Helsingissä', 'Hämeenlinna': 'H�
             'Mikkeli': 'Mikkelissä', 'Oulu': 'Oulussa', 'Pori': 'Porissa', 'Rauma': 'Raumalla', 'Tampere': 'Tampereella',
             'Turku': 'Turussa', 'Vaasa': 'Vaasassa', 'Vantaa': 'Vantaalla', 'Seinäjoki': 'Seinäjoella',
             'Joensuu': 'Joensuussa', 'Kotka': 'Kotkassa', 'Savonlinna': 'Savonlinnassa', 'Pardubice': 'Pardubicessa'}
+# where a game is played, as the end of a caption says it ("… 11.11.2026 Lappeenrannan Kisapuistossa"): by home
+# team where the arena goes by another name than liiga.fi's, else made from liiga.fi's (arena_in)
+ARENA_IN = {'saipa': 'Lappeenrannan Kisapuistossa', 'lukko': 'Rauman Äijänsuo Areenalla',
+            'pardubice': 'Pardubicen Enteria Arenalla'}
+ARENA_ENDS = (('halli', 'hallissa'), ('areena', 'areenalla'), ('Areena', 'Areenalla'), ('Arena', 'Arenalla'))
+
+
+def arena_in(rink, home):
+    """'Kuopion jäähalli' -> 'Kuopion jäähallissa'; '' when there's no telling (the caption then leaves it out)."""
+    slug = (home or '').split(':', 1)[-1]
+    if slug in ARENA_IN:
+        return ARENA_IN[slug]
+    name = re.sub(r'\s+(?:I+|Oy)$', '', (rink or '').split(' / ')[0].strip())
+    for end, form in ARENA_ENDS:
+        if name.endswith(end):
+            return name[:-len(end)] + form
+    return ''
 
 SIZE = 72                       # avatar size in the Lightroom window (pixels)
 RENDER = 2                      # render version: bump to redraw every picture
@@ -256,7 +274,8 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
                                 '|'.join(_clean(r) for r in g.get('refs') or []), _clean(g.get('rink')), city,
                                 LOCATIVE.get(city, ''), 'CHL' if str(gid).startswith('chl:') else 'Liiga',
                                 *[_clean(n) for n in (list(g.get('names') or []) + ['', ''])[:2]],
-                                _clean(g.get('country', 'Finland')), _clean(g.get('code', 'FI'))]))
+                                _clean(g.get('country', 'Finland')), _clean(g.get('code', 'FI')),
+                                _clean(arena_in(g.get('rink'), (g.get('teams') or [''])[0]))]))
 
     def draw(job):
         e, cached, dest = job

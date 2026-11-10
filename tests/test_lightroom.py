@@ -170,10 +170,10 @@ class TestExport(Base):
         self.assertTrue(os.path.exists(os.path.join(out, 'img', 'h_staff.png')))
         self.assertTrue(any(ln.startswith('p\tCc Coach\t\tPäävalmentaja\t') for ln in lines))
         self.assertIn('g\t2026-10-21\t1:saipa\t1:kärpät\tRef 4|Ref 1\tLappeenrannan jäähalli I\tLappeenranta\t'
-                      'Lappeenrannassa\tLiiga\t\t\tFinland\tFI', lines)
+                      'Lappeenrannassa\tLiiga\t\t\tFinland\tFI\tLappeenrannan Kisapuistossa', lines)
         self.assertIn('g\t2026-11-18\tchl:pardubice\t1:saipa\t\tEnteria Arena\tPardubice\tPardubicessa\t'
                       'CHL\tDynamo Pardubice\tSaiPa Lappeenranta\t'
-                      'Czech Republic\tCZ', lines)
+                      'Czech Republic\tCZ\tPardubicen Enteria Arenalla', lines)
         pic = next(ln for ln in lines if ln.startswith('p\tAa Bee')).split('\t')[4]
         with Image.open(os.path.join(out, 'img', pic)) as im:
             self.assertEqual(im.size, (lightroom.SIZE, lightroom.SIZE))
@@ -187,6 +187,14 @@ class TestExport(Base):
         with open(os.path.join(out, 'players.txt'), encoding='utf-8') as fh:
             self.assertEqual(fh.read().splitlines()[1], f'd\t{self.cfg.settings["team_panel"][0]}\t'
                                                         f'{self.cfg.settings["team_panel"][1]}')
+
+    def test_arena_in_captions(self):
+        self.assertEqual(lightroom.arena_in('Kuopion jäähalli', '1:kalpa'), 'Kuopion jäähallissa')
+        self.assertEqual(lightroom.arena_in('Porin jäähalli I', '1:ässät'), 'Porin jäähallissa')
+        self.assertEqual(lightroom.arena_in('Turun Monitoimihalli Oy', '1:tps'), 'Turun Monitoimihallissa')
+        self.assertEqual(lightroom.arena_in('Tampereen Kansi Areena', '1:tappara'), 'Tampereen Kansi Areenalla')
+        self.assertEqual(lightroom.arena_in('Lappeenrannan jäähalli I', '1:saipa'), 'Lappeenrannan Kisapuistossa')
+        self.assertEqual(lightroom.arena_in('Wellblechpalast', 'chl:eisbären-berlin'), '')     # no telling: left out
 
     def test_send_and_result(self):
         name = lightroom.send(self.cfg, [os.path.join(self.tmp, 'a.NEF'), os.path.join(self.tmp, 'b.JPG')])
@@ -324,15 +332,16 @@ class TestPluginLua(Base):
                          'Kärppien Aa Bee (29) ja päävalmentaja Cc Coach, SaiPan Dd Away (7) sekä linjatuomari Ref 4')
         self.assertEqual(cap.people(names(['Someone Else']), index), 'Someone Else')    # not in any team
         template, info = cap.fromGame(d, d.games[1])
-        self.assertEqual(template, '{people} Away–Home Liiga-ottelussa 21.10.2026.')
+        self.assertEqual(template, '{people} Away–Home Liiga-ottelussa 21.10.2026 Lappeenrannan Kisapuistossa.')
         self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
                          ('Away–Home', 'Lappeenranta', 'Finland', 'FI', 'Lappeenrannan jäähalli I'))
         self.assertEqual(cap.render(template, 'Kärppien Aa Bee (29)'),
-                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026.')
+                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026 Lappeenrannan Kisapuistossa.')
         self.assertEqual(cap.render('{people}, Oulu', 'linjatuomari X'), 'Linjatuomari X, Oulu')
         chl = next(g for g in d.games.values() if g.date == '2026-11-18')          # a CHL game abroad
         template, info = cap.fromGame(d, chl)
-        self.assertEqual(template, '{people} Dynamo Pardubice–Away CHL-ottelussa 18.11.2026.')   # no preset for Pardubice: its CHL name
+        self.assertEqual(template, '{people} Dynamo Pardubice–Away CHL-ottelussa 18.11.2026 '
+                                   'Pardubicen Enteria Arenalla.')   # no preset for Pardubice: its CHL name
         self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
                          ('Dynamo Pardubice–Away', 'Pardubice', 'Czech Republic', 'CZ', 'Enteria Arena'))
 
@@ -359,7 +368,7 @@ class TestPluginLua(Base):
         opts = lua.table_from({'template': template, 'index': cap.index(d, d.teams[1], d.teams[2]), 'info': info})
         self.assertEqual(tagging.toggle(catalog, photos, d.teams[1].people[1], opts), ('added', 1))
         self.assertEqual(photos[1].meta.caption,
-                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026.')
+                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026 Lappeenrannan Kisapuistossa.')
         self.assertEqual(photos[2].meta.caption, 'Yleisö juhlii.')                  # your own caption stays
         self.assertEqual((photos[1].meta.headline, photos[1].meta.city, photos[1].meta.location),
                          ('Away–Home', 'Lappeenranta', 'Lappeenrannan jäähalli I'))
@@ -405,7 +414,7 @@ class TestPluginLua(Base):
             return found
         end''')(dialog.contents)
         named['From Game'].action()                                                # caption for the photo's game
-        self.assertEqual(props.template, '{people} Away–Home Liiga-ottelussa 21.10.2026.')
+        self.assertEqual(props.template, '{people} Away–Home Liiga-ottelussa 21.10.2026 Lappeenrannan Kisapuistossa.')
         self.assertIn('Away–Home', props.infoText)
         self.assertEqual(stub.prefs.template, props.template)                      # remembered
         buttons['a_1_title'].action()
@@ -413,7 +422,7 @@ class TestPluginLua(Base):
         self.assertEqual(props['a_1_title'], '✓ #29 Bee')
         self.assertIn('Tagged Aa Bee on 1 photo', props.status)
         self.assertEqual(photos[1].meta.caption,
-                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026.')
+                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026 Lappeenrannan Kisapuistossa.')
         self.assertEqual(photos[1].meta.location, 'Lappeenrannan jäähalli I')
         props.teamB = ''
         props.observers['teamB']()

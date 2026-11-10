@@ -109,7 +109,8 @@ function Caption.fromGame(data, game)
 	local match = name(1) .. '–' .. name(2)
 	local league = game.league ~= nil and game.league ~= '' and game.league or 'Liiga'
 	if league:find('Mestarien', 1, true) then league = 'CHL' end      -- written by the 0.13.0 app
-	local template = '{people} ' .. match .. ' ' .. league .. '-ottelussa ' .. Caption.date(game.date) .. '.'
+	local where = game.rinkIn ~= nil and game.rinkIn ~= '' and (' ' .. game.rinkIn) or ''
+	local template = '{people} ' .. match .. ' ' .. league .. '-ottelussa ' .. Caption.date(game.date) .. where .. '.'
 	return template, { headline = match, city = game.city, country = game.country or 'Finland',
 		isoCountryCode = game.isoCountryCode or 'FI', location = game.rink }
 end
