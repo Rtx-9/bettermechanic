@@ -50,14 +50,20 @@ local modules = {
     message = function(a, b) STUB.log[#STUB.log + 1] = 'message: ' .. b end,
     showBezel = function(m) STUB.log[#STUB.log + 1] = 'bezel: ' .. m end,
     attachErrorDialogToFunctionContext = function() end,
-    presentFloatingDialog = function(plugin, args) STUB.dialog = args end,
+    presentFloatingDialog = function(plugin, args)
+      STUB.dialog, STUB.opened = args, (STUB.opened or 0) + 1
+      if args.onShow then args.onShow({ toFront = function() end, close = function() args.windowWillClose() end }) end
+    end,
   },
   LrFunctionContext = { postAsyncTaskWithContext = function(name, fn) fn({}) end },
   LrPrefs = { prefsForPlugin = function() return STUB.prefs end },
   LrTasks = {
     startAsyncTask = function(fn) fn() end,
     pcall = pcall,
-    sleep = function() STUB.dialog.windowWillClose() end,      -- the window closes during the first wait
+    sleep = function()                    -- what the user does while the window is open; then they close it
+      local step = STUB.steps and table.remove(STUB.steps, 1)
+      if step then step(STUB.dialog.contents.bind_to_object) else STUB.dialog.windowWillClose() end
+    end,
   },
   LrBinding = { makePropertyTable = function()
     local t = { observers = {} }
@@ -144,7 +150,7 @@ class Base(unittest.TestCase):
                                     'chl:1': {'date': '2026-11-18', 'teams': ['chl:pardubice', '1:saipa'], 'refs': [],
                                               'names': ['Dynamo Pardubice', 'SaiPa Lappeenranta'],
                                               'rink': 'Enteria Arena', 'city': 'Pardubice', 'country': 'Czech Republic',
-                                              'code': 'CZ', 'series': 'Mestarien liigan neljännesvälieräottelussa'}})
+                                              'code': 'CZ'}})
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -164,9 +170,9 @@ class TestExport(Base):
         self.assertTrue(os.path.exists(os.path.join(out, 'img', 'h_staff.png')))
         self.assertTrue(any(ln.startswith('p\tCc Coach\t\tPäävalmentaja\t') for ln in lines))
         self.assertIn('g\t2026-10-21\t1:saipa\t1:kärpät\tRef 4|Ref 1\tLappeenrannan jäähalli I\tLappeenranta\t'
-                      'Lappeenrannassa\t\t\t\tFinland\tFI', lines)
+                      'Lappeenrannassa\tLiiga\t\t\tFinland\tFI', lines)
         self.assertIn('g\t2026-11-18\tchl:pardubice\t1:saipa\t\tEnteria Arena\tPardubice\tPardubicessa\t'
-                      'Mestarien liigan neljännesvälieräottelussa\tDynamo Pardubice\tSaiPa Lappeenranta\t'
+                      'CHL\tDynamo Pardubice\tSaiPa Lappeenranta\t'
                       'Czech Republic\tCZ', lines)
         pic = next(ln for ln in lines if ln.startswith('p\tAa Bee')).split('\t')[4]
         with Image.open(os.path.join(out, 'img', pic)) as im:
@@ -311,23 +317,22 @@ class TestPluginLua(Base):
         d = self.data
         index = cap.index(d, d.teams[1], d.teams[2])
         names = self.lua.table_from
-        self.assertEqual(cap.longDate('2026-10-20'), '20. lokakuuta 2026')
+        self.assertEqual(cap.date('2026-09-05'), '05.09.2026')
         self.assertEqual(cap.people(names(['Aa Bee']), index), 'Kärppien Aa Bee (29)')
         self.assertEqual(cap.people(names(['Aa Bee', 'Dd Away']), index), 'Kärppien Aa Bee (29) ja SaiPan Dd Away (7)')
         self.assertEqual(cap.people(names(['Aa Bee', 'Cc Coach', 'Dd Away', 'Ref 4']), index),
                          'Kärppien Aa Bee (29) ja päävalmentaja Cc Coach, SaiPan Dd Away (7) sekä linjatuomari Ref 4')
         self.assertEqual(cap.people(names(['Someone Else']), index), 'Someone Else')    # not in any team
         template, info = cap.fromGame(d, d.games[1])
-        self.assertEqual(template, '{people} Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertEqual(template, '{people} Away–Home Liiga-ottelussa 21.10.2026.')
         self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
                          ('Away–Home', 'Lappeenranta', 'Finland', 'FI', 'Lappeenrannan jäähalli I'))
         self.assertEqual(cap.render(template, 'Kärppien Aa Bee (29)'),
-                         'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026.')
         self.assertEqual(cap.render('{people}, Oulu', 'linjatuomari X'), 'Linjatuomari X, Oulu')
         chl = next(g for g in d.games.values() if g.date == '2026-11-18')          # a CHL game abroad
         template, info = cap.fromGame(d, chl)
-        self.assertEqual(template, '{people} Mestarien liigan neljännesvälieräottelussa Dynamo Pardubice–Away '
-                                   'Pardubicessa 18. marraskuuta 2026.')   # no preset for Pardubice: its CHL name
+        self.assertEqual(template, '{people} Dynamo Pardubice–Away CHL-ottelussa 18.11.2026.')   # no preset for Pardubice: its CHL name
         self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
                          ('Dynamo Pardubice–Away', 'Pardubice', 'Czech Republic', 'CZ', 'Enteria Arena'))
 
@@ -354,16 +359,16 @@ class TestPluginLua(Base):
         opts = lua.table_from({'template': template, 'index': cap.index(d, d.teams[1], d.teams[2]), 'info': info})
         self.assertEqual(tagging.toggle(catalog, photos, d.teams[1].people[1], opts), ('added', 1))
         self.assertEqual(photos[1].meta.caption,
-                         'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026.')
         self.assertEqual(photos[2].meta.caption, 'Yleisö juhlii.')                  # your own caption stays
         self.assertEqual((photos[1].meta.headline, photos[1].meta.city, photos[1].meta.location),
                          ('Away–Home', 'Lappeenranta', 'Lappeenrannan jäähalli I'))
         self.assertEqual(photos[2].meta.city, 'Oulu')                               # filled in only where empty
         tagging.toggle(catalog, lua.eval('function(p) return { p } end')(photos[1]), d.teams[2].people[1], opts)
         self.assertEqual(photos[1].meta.personShown, 'Aa Bee, Dd Away')
-        self.assertTrue(photos[1].meta.caption.startswith('Kärppien Aa Bee (29) ja SaiPan Dd Away (7) Liigan'))
+        self.assertTrue(photos[1].meta.caption.startswith('Kärppien Aa Bee (29) ja SaiPan Dd Away (7) Away–Home'))
         tagging.toggle(catalog, lua.eval('function(p) return { p } end')(photos[1]), d.teams[1].people[1], opts)
-        self.assertTrue(photos[1].meta.caption.startswith('SaiPan Dd Away (7) Liigan'))   # Aa Bee taken off
+        self.assertTrue(photos[1].meta.caption.startswith('SaiPan Dd Away (7) Away–Home'))   # Aa Bee taken off
 
     def test_window_builds_and_tags(self):
         lua = self.lua
@@ -400,7 +405,7 @@ class TestPluginLua(Base):
             return found
         end''')(dialog.contents)
         named['From Game'].action()                                                # caption for the photo's game
-        self.assertEqual(props.template, '{people} Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+        self.assertEqual(props.template, '{people} Away–Home Liiga-ottelussa 21.10.2026.')
         self.assertIn('Away–Home', props.infoText)
         self.assertEqual(stub.prefs.template, props.template)                      # remembered
         buttons['a_1_title'].action()
@@ -408,7 +413,7 @@ class TestPluginLua(Base):
         self.assertEqual(props['a_1_title'], '✓ #29 Bee')
         self.assertIn('Tagged Aa Bee on 1 photo', props.status)
         self.assertEqual(photos[1].meta.caption,
-                         'Kärppien Aa Bee (29) Liigan ottelussa Away–Home Lappeenrannassa 21. lokakuuta 2026.')
+                         'Kärppien Aa Bee (29) Away–Home Liiga-ottelussa 21.10.2026.')
         self.assertEqual(photos[1].meta.location, 'Lappeenrannan jäähalli I')
         props.teamB = ''
         props.observers['teamB']()
@@ -417,6 +422,60 @@ class TestPluginLua(Base):
         props.showRefs = False                                                    # referees off: column empty
         props.observers['showRefs']()
         self.assertFalse(props['r_2_btn'])
+
+    def find(self, root, test):
+        return self.lua.eval('''function(root, test)
+            local found = {}
+            local function walk(v)
+              if type(v) ~= 'table' then return end
+              if test(v) then found[#found + 1] = v end
+              for _, c in ipairs(v) do walk(c) end
+            end
+            walk(root)
+            return found
+        end''')(root, test)
+
+    def test_click_the_picture(self):
+        lua = self.lua
+        photos = lua.eval('{ makePhoto(1, {}, 1000) }')
+        lua.globals().STUB.catalog = lua.eval('makeCatalog')(photos)
+        lua.execute(f'dofile([[{PLUGIN}/Players.lua]])')
+        contents = lua.globals().STUB.dialog.contents
+        pictures = self.find(contents, lambda v: v.kind == 'view' and v.place == 'overlapping')
+        self.assertEqual(pictures[1][1].kind, 'picture')
+        click = pictures[1][2]                                                    # on top of a_1's picture
+        self.assertEqual((click.kind, click.visible.bind), ('static_text', 'a_1_btn'))
+        click.mouse_down()
+        self.assertTrue(photos[1].kws['Aa Bee'])
+        click.mouse_down()                                                        # again: off
+        self.assertFalse(photos[1].kws['Aa Bee'])
+
+    def test_layout_changes_reopen_the_window(self):
+        lua, stub = self.lua, self.lua.globals().STUB
+        stub.catalog = lua.eval('makeCatalog')(lua.eval('{ makePhoto(1, {}, 1000) }'))
+        frames, widths = [], []
+
+        def seen(props):
+            frames.append(stub.dialog.save_frame)
+            views = self.find(stub.dialog.contents, lambda v: v.kind == 'scrolled_view')
+            widths.append([views[i].width for i in range(1, len(views) + 1)])
+
+        def refs_off(props):
+            seen(props)
+            props.showRefs = False
+            props.observers['showRefs']()
+
+        def larger(props):
+            seen(props)
+            props.size = 'large'
+            props.observers['size']()
+        stub.steps = lua.table_from([refs_off, larger, seen])
+        lua.execute(f'dofile([[{PLUGIN}/Players.lua]])')
+        self.assertEqual(stub.opened, 3)
+        self.assertEqual(frames, ['BetterMechanicPlayersWindow_medium', 'BetterMechanicPlayersWindow_medium_norefs',
+                                  'BetterMechanicPlayersWindow_large_norefs'])
+        self.assertEqual(widths, [[456, 456, 248], [456, 456], [560, 560]])    # no referees column, then wider
+        self.assertEqual((stub.prefs.showRefs, stub.prefs.size), (False, 'large'))   # and the next time too
 
     def test_inbox_adds_sent_photos(self):
         lua, stub = self.lua, self.lua.globals().STUB

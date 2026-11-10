@@ -1,5 +1,7 @@
---[[ The BetterMechanic Players window: two teams side by side and the referees. Click a person to tag the
-photos selected in Lightroom; click again to take them off. People already on the selection get a ✓. ]]
+--[[ The BetterMechanic Players window: two teams side by side and the referees. Click a person (the picture or
+the name) to tag the photos selected in Lightroom; click again to take them off. People already on the selection
+get a ✓. Lightroom can't change a window's layout once it's open, so hiding the referees or picking another size
+closes the window and opens it again in the new layout. ]]
 
 local LrApplication = import 'LrApplication'
 local LrBinding = import 'LrBinding'
@@ -16,19 +18,40 @@ local Tagging = require 'Tagging'
 
 local bind = LrView.bind
 local TILE_W, PIC = 104, 72
-local SIDE_H = 440                      -- tall enough for four rows, short enough for a 1080p screen with the caption rows
+
+-- window sizes: tiles per row in a team's column and in the referees', and how tall the columns are
+-- (medium fits a 1080p screen with the caption rows)
+local SIZES = {
+	{ value = 'small', title = 'Small', perRow = 3, refRow = 1, height = 300 },
+	{ value = 'medium', title = 'Medium', perRow = 4, refRow = 2, height = 440 },
+	{ value = 'large', title = 'Large', perRow = 5, refRow = 2, height = 600 },
+}
+
+local function sizeOf(value)
+	for _, s in ipairs(SIZES) do
+		if s.value == value then return s end
+	end
+	return SIZES[2]
+end
 
 -- one tile: picture and button. Lightroom only hides controls themselves (not rows or columns), so each has
--- its own visibility; a heading tile shows just its picture.
+-- its own visibility; a heading tile shows just its picture. Pictures can't be clicked, so an empty text the
+-- size of the picture lies on top of it to take the click.
 local function tile(f, k, onClick)
+	local function click() onClick(k) end
 	return f:column {
 		width = TILE_W,
 		spacing = 2,
-		f:picture { value = bind(k .. '_img'), visible = bind(k .. '_vis'), width = PIC, height = PIC,
-			place_horizontal = 0.5 },
+		f:view {
+			place = 'overlapping',
+			place_horizontal = 0.5,
+			f:picture { value = bind(k .. '_img'), visible = bind(k .. '_vis'), width = PIC, height = PIC },
+			f:static_text { title = '', width = PIC, height = PIC, visible = bind(k .. '_btn'),
+				tooltip = bind(k .. '_tip'), mouse_down = click },
+		},
 		f:push_button {
 			title = bind(k .. '_title'), tooltip = bind(k .. '_tip'), visible = bind(k .. '_btn'),
-			width = TILE_W - 4, size = 'small', action = function() onClick(k) end,
+			width = TILE_W - 4, size = 'small', action = click,
 		},
 	}
 end
@@ -87,6 +110,7 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 	if props.teamA == '' and first then props.teamA = first.value end
 	props.teamB = pick(prefs.teamB or '-', data.defaults[2], '')
 	props.showRefs = data.referees ~= nil and prefs.showRefs ~= false
+	props.size = sizeOf(prefs.size).value
 	props.status = 'Select photos in Lightroom, then click a person.'
 	props.template = prefs.template or ''
 	props.writeCaption = prefs.writeCaption ~= false
@@ -164,72 +188,95 @@ LrFunctionContext.postAsyncTaskWithContext('BetterMechanicPlayers', function(con
 		end)
 	end
 
+	-- a new layout: close the window, and the loop at the end opens it again
+	local window, reopen = nil, false
+	local function relayout()
+		if window and window.close then
+			reopen = true
+			window.close()
+		else
+			props.status = 'Close the window and open it again for the new layout.'
+		end
+	end
+
 	-- observers run outside any task, and Lightroom only lets tasks read the catalog
 	local function later(fn)
 		return function() LrTasks.startAsyncTask(fn) end
 	end
 	props:addObserver('teamA', later(function() prefs.teamA = props.teamA; refresh(true) end))
 	props:addObserver('teamB', later(function() prefs.teamB = props.teamB; refresh(true) end))
-	props:addObserver('showRefs', later(function() prefs.showRefs = props.showRefs; redraw() end))
+	props:addObserver('showRefs', later(function() prefs.showRefs = props.showRefs; redraw(); relayout() end))
+	props:addObserver('size', later(function() prefs.size = props.size; relayout() end))
 	props:addObserver('template', function() prefs.template = props.template end)
 	props:addObserver('writeCaption', function() prefs.writeCaption = props.writeCaption end)
 	props:addObserver('writeInfo', function() prefs.writeInfo = props.writeInfo end)
 
 	local f = LrView.osFactory()
-	local contents = f:column {
-		bind_to_object = props,
-		spacing = 8,
-		f:row {
+	local function build(size)
+		local columns = { spacing = 10 }
+		columns[1] = side(f, 'a', size.perRow, TILE_W * size.perRow + 40, size.height, onClick)
+		columns[2] = side(f, 'b', size.perRow, TILE_W * size.perRow + 40, size.height, onClick)
+		if props.showRefs then
+			columns[3] = side(f, 'r', size.refRow, TILE_W * size.refRow + 40, size.height, onClick)
+		end
+		return f:column {
+			bind_to_object = props,
 			spacing = 8,
-			f:popup_menu { items = teamItems(data, false), value = bind('teamA'), width = 200 },
-			f:push_button { title = '⇄', tooltip = 'Swap the teams', action = function()
-				if props.teamB ~= '' then props.teamA, props.teamB = props.teamB, props.teamA end
-			end },
-			f:popup_menu { items = teamItems(data, true), value = bind('teamB'), width = 200 },
-			f:checkbox { title = 'Referees', value = bind('showRefs'), enabled = data.referees ~= nil },
-		},
-		f:row {
-			spacing = 8,
-			f:static_text { title = 'Caption', width = 52 },
-			f:edit_field {
-				value = bind('template'), width_in_chars = 78, height_in_lines = 2, immediate = true,
-				tooltip = 'Written into the caption of every photo you tag; {people} becomes the people on the photo, '
-					.. 'e.g. "Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10)". A caption you wrote '
-					.. 'yourself is kept: only the names in it change.',
+			f:row {
+				spacing = 8,
+				f:popup_menu { items = teamItems(data, false), value = bind('teamA'), width = 200 },
+				f:push_button { title = '⇄', tooltip = 'Swap the teams', action = function()
+					if props.teamB ~= '' then props.teamA, props.teamB = props.teamB, props.teamA end
+				end },
+				f:popup_menu { items = teamItems(data, true), value = bind('teamB'), width = 200 },
+				f:checkbox { title = 'Referees', value = bind('showRefs'), enabled = data.referees ~= nil },
+				f:popup_menu { items = SIZES, value = bind('size'), tooltip = 'How big the window is' },
 			},
-			f:push_button { title = 'From Game', action = fromGame,
-				tooltip = 'A news caption and the headline, city, country and arena for the selected photo\'s game' },
-		},
-		f:row {
-			spacing = 8,
-			f:static_text { title = '', width = 52 },
-			f:checkbox { title = 'Write caption', value = bind('writeCaption') },
-			f:checkbox { title = 'Fill in headline, city, country, arena:', value = bind('writeInfo') },
-			f:static_text { title = bind('infoText'), fill_horizontal = 1 },
-		},
-		f:row {
-			spacing = 10,
-			side(f, 'a', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, SIDE_H, onClick),
-			side(f, 'b', Model.PER_ROW, TILE_W * Model.PER_ROW + 40, SIDE_H, onClick),
-			side(f, 'r', Model.REF_ROW, TILE_W * Model.REF_ROW + 40, SIDE_H, onClick),
-		},
-		f:static_text { title = bind('status'), fill_horizontal = 1 },
-	}
+			f:row {
+				spacing = 8,
+				f:static_text { title = 'Caption', width = 52 },
+				f:edit_field {
+					value = bind('template'), width_in_chars = 50, fill_horizontal = 1, height_in_lines = 2,
+					immediate = true,
+					tooltip = 'Written into the caption of every photo you tag; {people} becomes the people on the photo, '
+						.. 'e.g. "Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10)". A caption you wrote '
+						.. 'yourself is kept: only the names in it change.',
+				},
+				f:push_button { title = 'From Game', action = fromGame,
+					tooltip = 'A news caption and the headline, city, country and arena for the selected photo\'s game' },
+			},
+			f:row {
+				spacing = 8,
+				f:static_text { title = '', width = 52 },
+				f:checkbox { title = 'Write caption', value = bind('writeCaption') },
+				f:checkbox { title = 'Fill in headline, city, country, arena:', value = bind('writeInfo') },
+				f:static_text { title = bind('infoText'), fill_horizontal = 1 },
+			},
+			f:row(columns),
+			f:static_text { title = bind('status'), fill_horizontal = 1 },
+		}
+	end
 
 	refresh(true)
-	Data.windowOpen = true
-	LrDialogs.presentFloatingDialog(_PLUGIN, {
-		title = 'BetterMechanic Players',
-		contents = contents,
-		save_frame = 'BetterMechanicPlayersWindow',
-		windowWillClose = function() Data.windowOpen = false end,
-		selectionChangeObserver = function()
-			LrTasks.startAsyncTask(function() refresh(true) end)
-		end,
-	})
-	-- keep the marks current (and this context, which owns the property table, alive) while it's open
-	while Data.windowOpen do
-		LrTasks.sleep(0.5)
-		refresh(false)
-	end
+	repeat
+		reopen, window = false, nil
+		local size = sizeOf(props.size)
+		Data.windowOpen = true
+		LrDialogs.presentFloatingDialog(_PLUGIN, {
+			title = 'BetterMechanic Players',
+			contents = build(size),
+			-- one saved frame per layout: Lightroom doesn't shrink a window to smaller contents
+			save_frame = 'BetterMechanicPlayersWindow_' .. size.value .. (props.showRefs and '' or '_norefs'),
+			onShow = function(t) window = t end,
+			windowWillClose = function() Data.windowOpen = false end,
+			selectionChangeObserver = function()
+				LrTasks.startAsyncTask(function() refresh(true) end)
+			end,
+		})
+		-- keep the marks current (and this context, which owns the property table, alive) while it's open
+		while Data.windowOpen do
+			LrTasks.sleep(0.5)
+			refresh(false)
+		end
+	until not reopen
 end)

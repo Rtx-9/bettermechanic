@@ -2,7 +2,7 @@
 
 The games come from chl.hockey (the public feed its own site shows the schedule from). Finnish clubs are the Liiga
 presets; the clubs from abroad get a preset of their own when their roster can be read (CLUBS: each club's website).
-Captions of CHL games say "Mestarien liigan …" instead of "Liigan ottelussa".
+Captions of CHL games say "CHL-ottelussa" instead of "Liiga-ottelussa".
 """
 from __future__ import annotations
 
@@ -16,12 +16,6 @@ from . import liiga
 
 LIVE = 'https://www.chl.hockey/api/s3/live?q=live-events.json'
 PREFIX = 'chl:'                         # preset / game ids: 'chl:pardubice', 'chl:<chl.hockey match id>'
-
-# stage of the competition -> how a caption says it
-STAGES = {'regular season': 'Mestarien liigan ottelussa', 'round of 16': 'Mestarien liigan neljännesvälieräottelussa',
-          'quarterfinals': 'Mestarien liigan puolivälieräottelussa', 'semifinals': 'Mestarien liigan välieräottelussa',
-          'final': 'Mestarien liigan finaalissa'}
-SERIES = 'Mestarien liigan ottelussa'
 
 # Czech staff roles as Finnish captions write them
 ROLES = {'hlavní trenér': 'Päävalmentaja', 'asistent trenéra': 'Apuvalmentaja', 'trenér brankářů': 'Maalivahtivalmentaja',
@@ -102,10 +96,8 @@ def games_from(feed, liiga_ids, liiga_games=None):
                 names.append(club['name'] if club else str(t.get('name') or ''))
             if not any(i in liiga_ids for i in ids):
                 continue
-            stage = str(((m.get('stage') or {}).get('group') or {}).get('name') or '').lower()
             rec = {'date': local_date(m['startDate']), 'teams': ids, 'refs': [], 'names': names,
-                   'rink': str((m.get('venue') or {}).get('name') or ''), 'city': '', 'country': '', 'code': '',
-                   'series': STAGES.get(stage, SERIES)}
+                   'rink': str((m.get('venue') or {}).get('name') or ''), 'city': '', 'country': '', 'code': ''}
             home = next((c for c in CLUBS.values() if c['id'] == ids[0]), None)
             if home:
                 rec.update(city=home['city'], country=home['country'], code=home['code'])

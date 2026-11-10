@@ -1,7 +1,6 @@
 --[[ News captions in Finnish, the way newsrooms and agencies expect them:
 
-  "Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) Liigan ottelussa Kärpät–SaiPa Oulussa
-   20. lokakuuta 2026."
+  "Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) Kärpät–SaiPa Liiga-ottelussa 20.10.2026."
 
 You set a caption with {people} in it before editing (or let "From game" write one for the photo's game); every
 photo you tag then gets it, with {people} filled in from the people on that photo. Plain Lua, no Lightroom calls.
@@ -9,15 +8,13 @@ photo you tag then gets it, with {people} filled in from the people on that phot
 
 local Caption = {}
 
-Caption.MONTHS = { 'tammikuuta', 'helmikuuta', 'maaliskuuta', 'huhtikuuta', 'toukokuuta', 'kesäkuuta',
-	'heinäkuuta', 'elokuuta', 'syyskuuta', 'lokakuuta', 'marraskuuta', 'joulukuuta' }
 Caption.ROLES = { Referee = 'päätuomari', Linesman = 'linjatuomari' }
 
--- '2026-10-20' -> '20. lokakuuta 2026'
-function Caption.longDate(day)
+-- '2026-09-05' -> '05.09.2026'
+function Caption.date(day)
 	local y, m, d = (day or ''):match('^(%d+)-(%d+)-(%d+)$')
 	if not y then return '' end
-	return tonumber(d) .. '. ' .. Caption.MONTHS[tonumber(m)] .. ' ' .. y
+	return d .. '.' .. m .. '.' .. y
 end
 
 local function lowerFirst(s)
@@ -99,10 +96,10 @@ function Caption.update(current, template, oldText, newText)
 end
 
 --[[ A caption and the game's details for news photos, from the game a photo is from:
-     template "{people} Liigan ottelussa Kärpät–SaiPa Oulussa 20. lokakuuta 2026." and
+     template "{people} Kärpät–SaiPa Liiga-ottelussa 20.10.2026." and
      info { headline = 'Kärpät–SaiPa', city = 'Oulu', country = 'Finland', isoCountryCode = 'FI',
             location = 'Oulun jäähalli' }
-     A CHL game says so: "{people} Mestarien liigan neljännesvälieräottelussa SaiPa–Dynamo Pardubice …". ]]
+     A CHL game says so: "{people} SaiPa–Dynamo Pardubice CHL-ottelussa 11.11.2026.". ]]
 function Caption.fromGame(data, game)
 	local names = game.names or {}
 	local function name(i)
@@ -110,10 +107,9 @@ function Caption.fromGame(data, game)
 		return team and team.name or (names[i] ~= nil and names[i] ~= '' and names[i]) or '?'
 	end
 	local match = name(1) .. '–' .. name(2)
-	local where = game.cityIn ~= '' and game.cityIn or (game.city ~= '' and game.city or '')
-	local series = game.series ~= nil and game.series ~= '' and game.series or 'Liigan ottelussa'
-	local template = '{people} ' .. series .. ' ' .. match
-		.. (where ~= '' and (' ' .. where) or '') .. ' ' .. Caption.longDate(game.date) .. '.'
+	local league = game.league ~= nil and game.league ~= '' and game.league or 'Liiga'
+	if league:find('Mestarien', 1, true) then league = 'CHL' end      -- written by the 0.13.0 app
+	local template = '{people} ' .. match .. ' ' .. league .. '-ottelussa ' .. Caption.date(game.date) .. '.'
 	return template, { headline = match, city = game.city, country = game.country or 'Finland',
 		isoCountryCode = game.isoCountryCode or 'FI', location = game.rink }
 end

@@ -9,8 +9,6 @@ referees, linesmen). The unused tiles at the end stay hidden. The property table
 
 local Model = {}
 
-Model.PER_ROW = 4
-Model.REF_ROW = 2
 Model.SLOTS = { a = 84, b = 84, r = 72 }
 
 function Model.lastName(name)

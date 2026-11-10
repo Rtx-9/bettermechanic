@@ -100,22 +100,22 @@ need *Metadata → Read Metadata from Files* to pick up changes.
 To tag photos that are already in Lightroom, install the plugin from **Settings → Lightroom Classic → Install
 Lightroom Plugin** and restart Lightroom. **Library → Plug-in Extras → BetterMechanic Players** (or File → Plug-in
 Extras) opens a window you can keep next to your photos: pick two teams, and every player and staff member shows with
-their photo and number, with the referees beside them (this game's first). Click someone to tag the photos selected in
-Lightroom: their name goes in the keywords and in *Person Shown*, and the team's keywords are added. Click again to
-take them off. People already on the selection get a ✓. BetterMechanic keeps the teams and photos up to date for the
-window, and updates the plugin itself when you install a new version.
+their photo and number, with the referees beside them (this game's first). Click someone (their photo or name) to tag
+the photos selected in Lightroom: their name goes in the keywords and in *Person Shown*, and the team's keywords are
+added. Click again to take them off. People already on the selection get a ✓. Untick **Referees** and their column
+goes, so the window gets narrower; the **Small / Medium / Large** menu changes how many people fit in each row and how
+tall the window is (the window closes and opens again in the new layout). BetterMechanic keeps the teams and photos up
+to date for the window, and updates the plugin itself when you install a new version.
 
 **News captions.** Before you start editing, set a caption with `{people}` in it, or press **From Game** with a photo
 from the game selected: it writes the caption the way newsrooms want it and fills in the game's details. Every photo
 you tag then gets the caption with the people on it, in Finnish:
 
-> Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) Liigan ottelussa SaiPa–Kärpät Lappeenrannassa
-> 20. lokakuuta 2026.
+> Kärppien Henrik Törnqvist (11) ja SaiPan Einar Emanuelsson (10) SaiPa–Kärpät Liiga-ottelussa 20.10.2026.
 
 Staff are written with their role (*Kärppien päävalmentaja Petri Karjalainen*), referees as *päätuomari* and
-*linjatuomari*. A CHL game says so: *… Mestarien liigan neljännesvälieräottelussa SaiPa–Dynamo Pardubice
-Lappeenrannassa 11. marraskuuta 2026.* Taking someone off takes them out of the caption too. A caption you wrote yourself is kept: only the
-names in it change. **Headline** (*SaiPa–Kärpät*), **City**, **Country** and **Sublocation** (the arena, from
+*linjatuomari*. A CHL game says so: *… SaiPa–Dynamo Pardubice CHL-ottelussa 11.11.2026.* Taking someone off takes
+them out of the caption too. A caption you wrote yourself is kept: only the names in it change. **Headline** (*SaiPa–Kärpät*), **City**, **Country** and **Sublocation** (the arena, from
 liiga.fi) are filled in where a photo has none. When exporting, choose *Metadata: All Metadata* (or *All Except Camera &
 Camera Raw Info*) and leave *Remove Person Info* off, so the names and caption go with the photo.
 

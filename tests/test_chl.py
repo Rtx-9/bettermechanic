@@ -63,7 +63,6 @@ class TestCHL(unittest.TestCase):
         self.assertEqual(home['date'], '2026-11-11')
         self.assertEqual(home['teams'], ['933686567:saipa', 'chl:pardubice'])           # the Liiga preset, the CHL one
         self.assertEqual(home['names'], ['SaiPa Lappeenranta', 'Dynamo Pardubice'])
-        self.assertEqual(home['series'], 'Mestarien liigan neljännesvälieräottelussa')
         self.assertEqual((home['rink'], home['city'], home['country'], home['code']),       # as in the club's Liiga games
                          ('Lappeenrannan jäähalli I', 'Lappeenranta', 'Finland', 'FI'))
         away = games['chl:m2']
@@ -72,7 +71,6 @@ class TestCHL(unittest.TestCase):
         berlin = games['chl:m3']                                       # a club we have no roster for: still its game
         self.assertEqual(berlin['teams'], ['chl:eisbären-berlin', '461765763:kookoo'])
         self.assertEqual((berlin['city'], berlin['country']), ('', ''))                 # unknown, not "Finland"
-        self.assertEqual(games['chl:m5']['series'], 'Mestarien liigan ottelussa')
 
     def test_esports_cz_roster(self):
         roster = chl.esports_cz('https://hcdynamo.cz/team/MUZ', page=PAGE)

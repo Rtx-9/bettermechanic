@@ -250,11 +250,11 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
             lines.append('\t'.join(['p', _clean(e['name']), _clean(e.get('number')), _clean(e.get('role')), fname]))
             if not os.path.exists(os.path.join(img_dir, fname)):
                 jobs.append((e, cached, os.path.join(img_dir, fname)))
-    for g in liiga.load_games(cfg).values():
+    for gid, g in liiga.load_games(cfg).items():
         city = _clean(g.get('city'))
         lines.append('\t'.join(['g', g.get('date', ''), *[(t or '') for t in (g.get('teams') or ['', ''])[:2]],
                                 '|'.join(_clean(r) for r in g.get('refs') or []), _clean(g.get('rink')), city,
-                                LOCATIVE.get(city, ''), _clean(g.get('series')),
+                                LOCATIVE.get(city, ''), 'CHL' if str(gid).startswith('chl:') else 'Liiga',
                                 *[_clean(n) for n in (list(g.get('names') or []) + ['', ''])[:2]],
                                 _clean(g.get('country', 'Finland')), _clean(g.get('code', 'FI'))]))
 
