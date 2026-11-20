@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication
                                QPlainTextEdit, QPushButton, QSizePolicy, QSlider, QSplitter, QStackedWidget, QTextEdit,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from . import chl, core, icons, liiga, lightroom, theme
+from . import bandy, chl, core, icons, liiga, lightroom, theme
 from .avatars import AvatarStore
 from .config import key_label
 from .picker import PlayerPicker, RosterEditor
@@ -28,6 +28,7 @@ from .workers import Bus, CopyJob, Loader, Saver
 
 K = lambda name: getattr(Qt.Key, name).value          # noqa: E731
 MAC_DIGITS = {29: 0, 18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9}
+EXTRA_LEAGUES = ('chl', 'bandy')        # fetched with the Liiga update (chl.fetch, bandy.fetch)
 
 
 class _Fetched(QObject):
@@ -99,7 +100,8 @@ class MainWindow(QMainWindow):
         self.board, self.liiga_job, self.liiga_done_cb = None, None, None
         if liiga.add_bundled(cfg):
             cfg.save()
-        if liiga.due(cfg) or cfg.settings.get('liiga_auto_update') and 'chl_added' not in cfg.settings:
+        if liiga.due(cfg) or cfg.settings.get('liiga_auto_update') and any(f'{k}_added' not in cfg.settings
+                                                                           for k in EXTRA_LEAGUES):
             QTimer.singleShot(4000, lambda: self.update_liiga(quiet=True))
         self.lr_thread = None
         self.lr_timer = QTimer(self, singleShot=True, interval=3000, timeout=self.export_lightroom)
@@ -1018,15 +1020,20 @@ class MainWindow(QMainWindow):
                 extra = chl.fetch(ids, dict(known, **(data or {}).get('games', {})))
             except Exception:
                 extra = None
-            job.ready.emit(dict(data or {}, chl=extra), err)
+            try:                        # Bandyliiga: every team and game
+                ball = bandy.fetch()
+            except Exception:
+                ball = None
+            job.ready.emit(dict(data or {}, chl=extra, bandy=ball), err)
         threading.Thread(target=run, daemon=True, name='liiga').start()
 
-    def _apply_chl(self, data, quiet):
-        """CHL clubs: the daily check adds each one once (one you delete stays deleted), Update Liiga Rosters all."""
+    def _apply_extra(self, data, key, quiet):
+        """CHL clubs, bandy teams: the daily check adds each one once (one you delete stays deleted), Update Liiga
+        Rosters all of them."""
         s = self.cfg.settings
-        seen = set(s.get('chl_added') or [])
+        seen = set(s.get(f'{key}_added') or [])
         new = {t['id'] for t in data['teams']} - seen
-        s['chl_added'] = sorted(seen | new)
+        s[f'{key}_added'] = sorted(seen | new)
         return liiga.apply(self.cfg, data, add_missing=new if quiet else True)
 
     def _liiga_done(self, data, err):
@@ -1034,8 +1041,10 @@ class MainWindow(QMainWindow):
         self.liiga_job = self.liiga_done_cb = None
         added = updated = 0
         data = data or {}
-        if data.get('chl'):
-            added, updated = self._apply_chl(data['chl'], job.quiet)
+        for key in EXTRA_LEAGUES:
+            if data.get(key):
+                a, u = self._apply_extra(data[key], key, job.quiet)
+                added, updated = added + a, updated + u
         if err is not None:
             msg = f'Couldn’t get rosters from liiga.fi ({err})'
         else:

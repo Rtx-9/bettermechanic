@@ -5,7 +5,7 @@ players.txt, one tab-separated record per line:
   t  <preset id>  <team name>  <liiga id>  <keywords added when tagging>  <genitive: "Kärppien">
   p  <name>  <number>  <role, empty for players>  <picture file in img/>
   g  <date YYYY-MM-DD>  <home liiga id>  <away liiga id>  <referee|referee|...>  <arena>  <city>  <"in city": "Oulussa">
-     <competition: "Liiga" or "CHL">  <home name>  <away name>  <country>  <ISO country code>
+     <competition: "Liiga", "CHL" or "Bandyliiga">  <home name>  <away name>  <country>  <ISO country code>
      <"at the arena": "Lappeenrannan Kisapuistossa">
 ]]
 

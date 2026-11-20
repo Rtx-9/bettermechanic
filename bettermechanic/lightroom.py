@@ -21,7 +21,7 @@ import time
 
 from PIL import Image, ImageDraw, ImageFont
 
-from . import avatars, liiga
+from . import avatars, bandy, liiga
 from .config import players
 
 # Finnish forms for news captions: "Kärppien Henrik Törnqvist (11) ... Oulussa"
@@ -29,12 +29,17 @@ GENITIVE = {'hifk': 'HIFK:n', 'hpk': 'HPK:n', 'ilves': 'Ilveksen', 'jyp': 'JYP:n
             'jukurit': 'Jukureiden', 'k-espoo': 'K-Espoon', 'kalpa': 'KalPan', 'kookoo': 'KooKoon',
             'kärpät': 'Kärppien', 'lukko': 'Lukon', 'pelicans': 'Pelicansin', 'saipa': 'SaiPan', 'sport': 'Sportin',
             'tps': 'TPS:n', 'tappara': 'Tapparan', 'ässät': 'Ässien',
-            'pardubice': 'Pardubicen'}                                          # CHL clubs (chl.CLUBS)
+            'pardubice': 'Pardubicen',                                          # CHL clubs (chl.CLUBS)
+            **bandy.GENITIVE}
+# the competition a game is in, by its id's prefix, as a caption says it ("CHL-ottelussa")
+LEAGUES = {'chl': 'CHL', 'bandy': 'Bandyliiga'}
+OWN_NAMES = ('chl:', 'bandy:')      # games whose teams are written as the game names them, not as the preset
 LOCATIVE = {'Espoo': 'Espoossa', 'Helsinki': 'Helsingissä', 'Hämeenlinna': 'Hämeenlinnassa', 'Jyväskylä': 'Jyväskylässä',
             'Kouvola': 'Kouvolassa', 'Kuopio': 'Kuopiossa', 'Lahti': 'Lahdessa', 'Lappeenranta': 'Lappeenrannassa',
             'Mikkeli': 'Mikkelissä', 'Oulu': 'Oulussa', 'Pori': 'Porissa', 'Rauma': 'Raumalla', 'Tampere': 'Tampereella',
             'Turku': 'Turussa', 'Vaasa': 'Vaasassa', 'Vantaa': 'Vantaalla', 'Seinäjoki': 'Seinäjoella',
-            'Joensuu': 'Joensuussa', 'Kotka': 'Kotkassa', 'Savonlinna': 'Savonlinnassa', 'Pardubice': 'Pardubicessa'}
+            'Joensuu': 'Joensuussa', 'Kotka': 'Kotkassa', 'Savonlinna': 'Savonlinnassa', 'Pardubice': 'Pardubicessa',
+            'Porvoo': 'Porvoossa', 'Varkaus': 'Varkaudessa'}
 # where a game is played, as the end of a caption says it ("… 11.11.2026 Lappeenrannan Kisapuistossa"): by home
 # team where the arena goes by another name than liiga.fi's, else made from liiga.fi's (arena_in)
 ARENA_IN = {'saipa': 'Lappeenrannan Kisapuistossa', 'lukko': 'Rauman Äijänsuo Areenalla',
@@ -270,12 +275,15 @@ def export(cfg, avatar_dir, fetch_missing=True, workers=4):
                 jobs.append((e, cached, os.path.join(img_dir, fname)))
     for gid, g in liiga.load_games(cfg).items():
         city = _clean(g.get('city'))
-        lines.append('\t'.join(['g', g.get('date', ''), *[(t or '') for t in (g.get('teams') or ['', ''])[:2]],
+        teams = (list(g.get('teams') or []) + ['', ''])[:2]
+        names = (list(g.get('names') or []) + ['', ''])[:2]
+        names = [n if str(t).startswith(OWN_NAMES) else '' for t, n in zip(teams, names)]   # Liiga: the preset's
+        lines.append('\t'.join(['g', g.get('date', ''), *[(t or '') for t in teams],
                                 '|'.join(_clean(r) for r in g.get('refs') or []), _clean(g.get('rink')), city,
-                                LOCATIVE.get(city, ''), 'CHL' if str(gid).startswith('chl:') else 'Liiga',
-                                *[_clean(n) for n in (list(g.get('names') or []) + ['', ''])[:2]],
+                                LOCATIVE.get(city, ''), LEAGUES.get(str(gid).split(':', 1)[0], 'Liiga'),
+                                *[_clean(n) for n in names],
                                 _clean(g.get('country', 'Finland')), _clean(g.get('code', 'FI')),
-                                _clean(arena_in(g.get('rink'), (g.get('teams') or [''])[0]))]))
+                                _clean(g.get('where') or arena_in(g.get('rink'), teams[0]))]))
 
     def draw(job):
         e, cached, dest = job

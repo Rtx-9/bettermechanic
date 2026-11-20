@@ -102,9 +102,11 @@ end
      A CHL game says so: "{people} SaiPa–Dynamo Pardubice CHL-ottelussa 11.11.2026.". ]]
 function Caption.fromGame(data, game)
 	local names = game.names or {}
+	-- the name the game gives (CHL and bandy teams: "HIFK", not the preset "HIFK Bandy"), else the preset's
 	local function name(i)
+		if names[i] ~= nil and names[i] ~= '' then return names[i] end
 		local team = data.byLiiga[game.teams[i]]
-		return team and team.name or (names[i] ~= nil and names[i] ~= '' and names[i]) or '?'
+		return team and team.name or '?'
 	end
 	local match = name(1) .. '–' .. name(2)
 	local league = game.league ~= nil and game.league ~= '' and game.league or 'Liiga'

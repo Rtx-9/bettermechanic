@@ -150,7 +150,11 @@ class Base(unittest.TestCase):
                                     'chl:1': {'date': '2026-11-18', 'teams': ['chl:pardubice', '1:saipa'], 'refs': [],
                                               'names': ['Dynamo Pardubice', 'SaiPa Lappeenranta'],
                                               'rink': 'Enteria Arena', 'city': 'Pardubice', 'country': 'Czech Republic',
-                                              'code': 'CZ'}})
+                                              'code': 'CZ'},
+                                    'bandy:2027:veitera-hifk-2026-11-20': {
+                                        'date': '2026-11-20', 'teams': ['bandy:veitera', 'bandy:hifk'], 'refs': [],
+                                        'names': ['Veiterä', 'HIFK'], 'rink': 'Kisapuisto', 'city': 'Lappeenranta',
+                                        'where': 'Lappeenrannan Kisapuistossa', 'country': 'Finland', 'code': 'FI'}})
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -172,8 +176,10 @@ class TestExport(Base):
         self.assertIn('g\t2026-10-21\t1:saipa\t1:kärpät\tRef 4|Ref 1\tLappeenrannan jäähalli I\tLappeenranta\t'
                       'Lappeenrannassa\tLiiga\t\t\tFinland\tFI\tLappeenrannan Kisapuistossa', lines)
         self.assertIn('g\t2026-11-18\tchl:pardubice\t1:saipa\t\tEnteria Arena\tPardubice\tPardubicessa\t'
-                      'CHL\tDynamo Pardubice\tSaiPa Lappeenranta\t'
+                      'CHL\tDynamo Pardubice\t\t'                     # SaiPa: as its Liiga preset is named
                       'Czech Republic\tCZ\tPardubicen Enteria Arenalla', lines)
+        self.assertIn('g\t2026-11-20\tbandy:veitera\tbandy:hifk\t\tKisapuisto\tLappeenranta\tLappeenrannassa\t'
+                      'Bandyliiga\tVeiterä\tHIFK\tFinland\tFI\tLappeenrannan Kisapuistossa', lines)
         pic = next(ln for ln in lines if ln.startswith('p\tAa Bee')).split('\t')[4]
         with Image.open(os.path.join(out, 'img', pic)) as im:
             self.assertEqual(im.size, (lightroom.SIZE, lightroom.SIZE))
@@ -344,6 +350,9 @@ class TestPluginLua(Base):
                                    'Pardubicen Enteria Arenalla.')   # no preset for Pardubice: its CHL name
         self.assertEqual((info.headline, info.city, info.country, info.isoCountryCode, info.location),
                          ('Dynamo Pardubice–Away', 'Pardubice', 'Czech Republic', 'CZ', 'Enteria Arena'))
+        ball = next(g for g in d.games.values() if g.date == '2026-11-20')         # bandy: the teams as the game
+        self.assertEqual(cap.fromGame(d, ball)[0],                                  # names them, no presets needed
+                         '{people} Veiterä–HIFK Bandyliiga-ottelussa 20.11.2026 Lappeenrannan Kisapuistossa.')
 
     def test_caption_follows_the_people(self):
         cap = self.lua.eval('require("Caption")')

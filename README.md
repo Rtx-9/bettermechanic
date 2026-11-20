@@ -45,6 +45,10 @@ presets per sport or team.
 - **Champions Hockey League.** The CHL games of the Finnish clubs come from chl.hockey with the Liiga update, and the
   clubs they play get a preset of their own where the club's website has a roster to read (so far *Dynamo Pardubice*:
   players, numbers, photos and staff, roles in Finnish). Keywords are the club's name and *CHL*.
+- **Bandyliiga (bandy).** All nine Bandyliiga teams (Veiterä, Akilles, Botnia, HIFK, JPS, Kampparit, Narukerä, OLS,
+  WP 35) come as presets with their players, numbers, photos and staff from bandyliiga.fi, with the season's games,
+  also with the Liiga update. Bandy's HIFK is the *HIFK Bandy* preset. Captions say *Bandyliiga-ottelussa* and end
+  with the home team's ground (*Lappeenrannan Kisapuistossa*).
 - **Good photos for everyone.** Photos come from liiga.fi, then last season's liiga.fi photo, then the club's website,
   then Wikipedia (only articles about ice hockey people, so a namesake's portrait isn't used). Placeholder
   silhouettes and logos are skipped, and on Windows every photo is framed on the face with the built-in face detector.
